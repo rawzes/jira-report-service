@@ -9,7 +9,7 @@ import statistics
 from app.models.schemas import (
     ReportData, IssueData, WorklogEntry, EmployeeMetrics, ProjectMetrics, 
     IssueTransition, WeeklyThroughput, CycleTimeData, AgingWipData,
-    OverdueData, ReopenedData, RiskFlag, StatusDistribution
+    OverdueData, ReopenedData, StatusDistribution
 )
 from app.models.config import settings
 
@@ -48,6 +48,7 @@ class ReportBuilder:
         self.start_statuses = settings.start_statuses_list
         self.blocked_statuses = settings.blocked_statuses_list
         self.excluded_statuses = settings.excluded_statuses_list
+        self.user_group = settings.JIRA_USER_GROUP
         
     def _parse_datetime(self, date_str: Optional[str]) -> Optional[datetime]:
         """Parse Jira datetime string to datetime with timezone."""
@@ -260,11 +261,11 @@ class ReportBuilder:
         # Aggregate employee metrics
         self._aggregate_employee_metrics(report, all_issues, all_worklogs)
         
+        # Filter employees by Jira group if configured
+        await self._filter_employees_by_group(report)
+        
         # Aggregate project metrics
         self._aggregate_project_metrics(report)
-        
-        # Calculate risk flags
-        self._calculate_risk_flags(report)
         
         # Calculate totals
         report.total_worklog_hours = sum(em.worklog_hours for em in report.employee_metrics)
@@ -712,6 +713,39 @@ class ReportBuilder:
         
         report.employee_metrics = list(emp_metrics.values())
     
+    async def _filter_employees_by_group(self, report: ReportData):
+        """Filter employee metrics to only include users from the configured Jira group."""
+        if not self.user_group:
+            return
+        
+        try:
+            logger.info(f"Fetching members of Jira group: {self.user_group}")
+            group_members = await self.jira.get_group_members(self.user_group)
+            
+            # Extract account IDs from group members
+            group_account_ids = {member.get("accountId") for member in group_members if member.get("accountId")}
+            
+            if not group_account_ids:
+                logger.warning(f"No members found in group {self.user_group}")
+                return
+            
+            # Filter employee metrics to only include users in the group
+            original_count = len(report.employee_metrics)
+            report.employee_metrics = [
+                emp for emp in report.employee_metrics
+                if emp.account_id in group_account_ids
+            ]
+            
+            filtered_count = original_count - len(report.employee_metrics)
+            if filtered_count > 0:
+                logger.info(f"Filtered out {filtered_count} employees not in group '{self.user_group}'")
+            
+            logger.info(f"Report now includes {len(report.employee_metrics)} employees from group '{self.user_group}'")
+            
+        except Exception as e:
+            logger.error(f"Failed to filter employees by group '{self.user_group}': {e}")
+            # Continue without filtering if there's an error
+    
     def _aggregate_project_metrics(self, report: ReportData):
         """Aggregate metrics per project."""
         project_data: Dict[str, ProjectMetrics] = {}
@@ -777,96 +811,6 @@ class ReportBuilder:
         
         report.project_metrics = list(project_data.values())
     
-    def _calculate_risk_flags(self, report: ReportData):
-        """Calculate automated risk flags."""
-        risks = []
-        
-        # Projects with declining throughput for 2+ weeks
-        weekly_by_project = defaultdict(list)
-        for wt in report.weekly_throughput:
-            weekly_by_project[wt.project_key].append(wt)
-        
-        for proj_key, weeks in weekly_by_project.items():
-            weeks_sorted = sorted(weeks, key=lambda x: x.week_start)
-            declining_weeks = 0
-            for i in range(1, len(weeks_sorted)):
-                if weeks_sorted[i].closed_tasks_count < weeks_sorted[i-1].closed_tasks_count:
-                    declining_weeks += 1
-                else:
-                    declining_weeks = 0
-                
-                if declining_weeks >= 2:
-                    risks.append(RiskFlag(
-                        risk_type="declining_throughput",
-                        description=f"Throughput declining for 2+ weeks in project {proj_key}",
-                        severity="high",
-                        project_key=proj_key
-                    ))
-                    break
-        
-        # Projects with growing median cycle time
-        # (This would need historical data - simplified for now)
-        
-        # Tasks older than 14 days in active statuses
-        for aw in report.aging_wip_data:
-            if aw.aging_days > 14 and not aw.blocked_flag:
-                risks.append(RiskFlag(
-                    risk_type="old_active_task",
-                    description=f"Issue {aw.issue_key} is {aw.aging_days} days old in status {aw.status}",
-                    severity="medium",
-                    issue_keys=[aw.issue_key],
-                    project_key=aw.project_key,
-                    employee_name=aw.assignee
-                ))
-        
-        # Tasks without assignee
-        for issue in report.raw_issues:
-            if issue.status not in self.done_statuses and not issue.assignee_account_id:
-                risks.append(RiskFlag(
-                    risk_type="unassigned_task",
-                    description=f"Issue {issue.issue_key} has no assignee",
-                    severity="medium",
-                    issue_keys=[issue.issue_key],
-                    project_key=issue.project_key
-                ))
-        
-        # Tasks without worklog (simplified - would need more complex check)
-        
-        # Overdue tasks
-        for od in report.overdue_data:
-            risks.append(RiskFlag(
-                risk_type="overdue_task",
-                description=f"Issue {od.issue_key} is {od.days_overdue} days overdue",
-                severity="high" if od.days_overdue > 7 else "medium",
-                issue_keys=[od.issue_key],
-                project_key=od.project_key,
-                employee_name=od.assignee
-            ))
-        
-        # Reopened tasks
-        for rd in report.reopened_data:
-            risks.append(RiskFlag(
-                risk_type="reopened_task",
-                description=f"Issue {rd.issue_key} was reopened {rd.reopen_count} times",
-                severity="medium",
-                issue_keys=[rd.issue_key],
-                project_key=rd.project_key,
-                employee_name=rd.assignee
-            ))
-        
-        # Employees with high worklog but low closures (diagnostic)
-        for emp in report.employee_metrics:
-            if emp.worklog_hours > 100 and emp.closed_issues == 0:
-                risks.append(RiskFlag(
-                    risk_type="high_worklog_low_closure",
-                    description=f"Employee {emp.display_name} has {emp.worklog_hours:.1f}h worklog but 0 closures (diagnostic)",
-                    severity="low",
-                    employee_name=emp.display_name,
-                    project_key=emp.project_key
-                ))
-        
-        report.risk_flags = risks
-
     async def build_custom_report(self, request) -> ReportData:
         """Build report for custom date range with flow metrics."""
         from app.models.schemas import CustomReportRequest
@@ -904,11 +848,11 @@ class ReportBuilder:
         # Aggregate employee metrics
         self._aggregate_employee_metrics(report, all_issues, all_worklogs)
         
+        # Filter employees by Jira group if configured
+        await self._filter_employees_by_group(report)
+        
         # Aggregate project metrics
         self._aggregate_project_metrics(report)
-        
-        # Calculate risk flags
-        self._calculate_risk_flags(report)
         
         # Calculate totals
         report.total_worklog_hours = sum(em.worklog_hours for em in report.employee_metrics)

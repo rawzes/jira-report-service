@@ -9,7 +9,7 @@ from app.models.schemas import (
     ReportData, EmployeeMetrics, ProjectMetrics, 
     IssueData, WorklogEntry, IssueTransition,
     WeeklyThroughput, WeeklyCycleTime, CycleTimeData, AgingWipData,
-    OverdueData, ReopenedData, RiskFlag, StatusDistribution
+    OverdueData, ReopenedData, StatusDistribution
 )
 from app.models.config import settings
 
@@ -32,29 +32,30 @@ class HtmlExporter:
         try:
             # Build JIRA filter URLs for summary links
             logger.debug("Building project keys and date strings")
-            project_keys = ','.join([p.project_key for p in report.project_metrics]) if report.project_metrics else ''
+            project_keys = ','.join([f'"{p.project_key}"' for p in report.project_metrics]) if report.project_metrics else ''
             start_str = report.start_date.strftime('%Y-%m-%d')
             end_str = report.end_date.strftime('%Y-%m-%d')
             
             # Build JQL filter URLs
             logger.debug("Building JQL filter URLs")
             created_jql = f"project in ({project_keys}) AND created >= '{start_str}' AND created < '{end_str}'"
-            closed_jql = f"project in ({project_keys}) AND status in ({','.join(settings.done_statuses_list)}) AND status changed to Done during ('{start_str}', '{end_str}')"
-            overdue_jql = f"project in ({project_keys}) AND duedate < now() AND status not in ({','.join(settings.done_statuses_list)})"
+            closed_jql = f"project in ({project_keys}) AND status in ({",".join([f'"{s}"' for s in settings.done_statuses_list])}) AND status changed to Done during ('{start_str}', '{end_str}')"
+            overdue_jql = f"project in ({project_keys}) AND duedate < now() AND status not in ({",".join([f'"{s}"' for s in settings.done_statuses_list])})"
             reopened_jql = f"project in ({project_keys}) AND status changed from Done to * during ('{start_str}', '{end_str}')"
-            blocked_jql = f"project in ({project_keys}) AND status in ({','.join(settings.blocked_statuses_list)})"
+            blocked_jql = f"project in ({project_keys}) AND status in ({",".join([f'"{s}"' for s in settings.blocked_statuses_list])})"
             
             logger.debug("Building HTML structure with logging")
             html_parts = []
             
             # HTML header
             logger.debug("Adding HTML header")
+            interval_str = f"{report.start_date.strftime('%Y-%m-%d')} - {report.end_date.strftime('%Y-%m-%d')}"
             html_parts.append(f"""<!DOCTYPE html>
 <html lang="{self.lang}">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Jira Report {report.start_date.strftime('%Y-%m-%d')} - {report.end_date.strftime('%Y-%m-%d')}</title>
+    <title>Отчет за месяц {interval_str}</title>
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
     <style>
 """)
@@ -66,8 +67,10 @@ class HtmlExporter:
 </head>
 <body>
     <div class="container">
-        <h1>📊 Jira Report</h1>
-        <p class="subtitle">""" + self._["report_period"] + f": {report.start_date.strftime('%Y-%m-%d')} - {report.end_date.strftime('%Y-%m-%d')}</p>")
+        <h1>📊 Отчет за месяц</h1>
+        <p class="subtitle">""" + interval_str + """</p>
+        <button id="downloadBtn" class="download-btn" onclick="downloadReport()">📥 Скачать отчет</button>
+""")
             
             # Summary section
             logger.debug("Generating summary section")
@@ -78,13 +81,13 @@ class HtmlExporter:
             html_parts.append(f"""
         <div class="tab-navigation">
             <button class="tab-button active" data-tab="by-employee">{self._["by_employee"]}</button>
+            <button class="tab-button" data-tab="employee-worklog-summary">{self._get("worklog_by_employee", "Worklog by Employee")}</button>
             <button class="tab-button" data-tab="by-project">{self._["by_project"]}</button>
             <button class="tab-button" data-tab="weekly-data">{self._["weekly_throughput"]}</button>
             <button class="tab-button" data-tab="cycle-time">{self._["cycle_time"]}</button>
             <button class="tab-button" data-tab="aging-wip">{self._["aging_wip"]}</button>
             <button class="tab-button" data-tab="overdue">{self._["overdue"]}</button>
             <button class="tab-button" data-tab="reopened">{self._["reopened"]}</button>
-            <button class="tab-button" data-tab="risks">{self._["risks"]}</button>
             <button class="tab-button" data-tab="charts">{self._["charts"]}</button>
             <button class="tab-button" data-tab="raw-data">{self._["raw_issues"]}</button>
         </div>
@@ -97,6 +100,12 @@ class HtmlExporter:
             html_parts.append("""        </div>""")
             
             logger.debug("Generating by-project section")
+            
+            # Employee worklog summary section
+            logger.debug("Generating employee worklog summary section")
+            html_parts.append("""        <div id="employee-worklog-summary" class="tab-content">""")
+            html_parts.append(self._generate_employee_worklog_summary_section(report))
+            html_parts.append("""        </div>""")
             html_parts.append("""        <div id="by-project" class="tab-content">""")
             html_parts.append(self._generate_by_project_section(report))
             html_parts.append("""        </div>""")
@@ -126,10 +135,6 @@ class HtmlExporter:
             html_parts.append(self._generate_reopened_section(report))
             html_parts.append("""        </div>""")
             
-            logger.debug("Generating risks section")
-            html_parts.append("""        <div id="risks" class="tab-content">""")
-            html_parts.append(self._generate_risks_section(report))
-            html_parts.append("""        </div>""")
             
             logger.debug("Generating charts section")
             html_parts.append("""        <div id="charts" class="tab-content">""")
@@ -389,13 +394,11 @@ class HtmlExporter:
             width: 100% !important;
             height: 100% !important;
         }
-        .risk-stats {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
             gap: 15px;
             margin-bottom: 20px;
         }
-        .risk-stat-card {
             background: #f8f9fa;
             padding: 20px;
             border-radius: 8px;
@@ -404,30 +407,23 @@ class HtmlExporter:
             transition: transform 0.2s;
             cursor: pointer;
         }
-        .risk-stat-card:hover {
             transform: translateY(-2px);
             box-shadow: 0 4px 12px rgba(0,0,0,0.1);
         }
-        .risk-stat-card.high {
             border-left-color: #e74c3c;
         }
-        .risk-stat-card.medium {
             border-left-color: #f39c12;
         }
-        .risk-stat-card.low {
             border-left-color: #3498db;
         }
-        .risk-stat-count {
             font-size: 36px;
             font-weight: bold;
             color: #2c3e50;
         }
-        .risk-stat-label {
             color: #7f8c8d;
             font-size: 14px;
             margin-top: 5px;
         }
-        .risk-card {
             background: #fff;
             border: 1px solid #e0e0e0;
             border-radius: 8px;
@@ -435,26 +431,20 @@ class HtmlExporter:
             margin-bottom: 10px;
             border-left: 4px solid #f39c12;
         }
-        .risk-card.high {
             border-left-color: #e74c3c;
         }
-        .risk-card.medium {
             border-left-color: #f39c12;
         }
-        .risk-card.low {
             border-left-color: #3498db;
         }
-        .risk-type {
             font-weight: bold;
             color: #2c3e50;
             margin-bottom: 5px;
         }
-        .risk-description {
             color: #555;
             font-size: 14px;
             margin-bottom: 5px;
         }
-        .risk-meta {
             color: #7f8c8d;
             font-size: 12px;
         }
@@ -502,8 +492,6 @@ class HtmlExporter:
             text-decoration: none;
         }
         
-        /* Risk Chart Container */
-        .risk-chart-container {
             width: 100%;
             max-width: 500px;
             height: 300px;
@@ -530,7 +518,26 @@ class HtmlExporter:
                 min-width: 600px;
             }
         }
-        """
+        
+        /* Download button */
+        .download-btn {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            margin: 20px 0;
+            transition: all 0.3s;
+            display: inline-block;
+        }
+        .download-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 20px rgba(102, 126, 234, 0.4);
+        }
+"""
     
     def _generate_jira_link(self, jql: str, text: str) -> str:
         """Generate a JIRA filter link."""
@@ -547,7 +554,6 @@ class HtmlExporter:
         html += '<div class="summary-nav-links">'
         html += f'<a class="summary-nav-link" data-tab="by-employee">{self._["by_employee"]}</a>'
         html += f'<a class="summary-nav-link" data-tab="by-project">{self._["by_project"]}</a>'
-        html += f'<a class="summary-nav-link" data-tab="risks">{self._["risks"]}</a>'
         html += f'<a class="summary-nav-link" data-tab="charts">{self._["charts"]}</a>'
         html += f'<a class="summary-nav-link" data-tab="raw-data">{self._["raw_issues"]}</a>'
         html += '</div></div>'
@@ -837,732 +843,3 @@ class HtmlExporter:
         html += "</tbody></table></div>"
         return html
     
-    def _generate_risks_section(self, report: ReportData) -> str:
-        """Generate risks section as interactive summary statistics with chart."""
-        if not report.risk_flags:
-            return ""
-        
-        logger.debug(f"Generating risks section with {len(report.risk_flags)} risk flags")
-        html_parts = []
-        html_parts.append(f"<h2>{self._['risks']}</h2>")
-        
-        # Summary statistics - single pass through risk_flags
-        logger.debug("Counting risk severity levels")
-        high_count = medium_count = low_count = 0
-        risk_types = {}
-        for risk in report.risk_flags:
-            severity = risk.severity.lower()
-            if severity == 'high':
-                high_count += 1
-            elif severity == 'medium':
-                medium_count += 1
-            else:
-                low_count += 1
-            
-            risk_type = risk.risk_type
-            risk_types[risk_type] = risk_types.get(risk_type, 0) + 1
-        
-        html_parts.append('<div class="risk-stats">')
-        html_parts.append(f'''
-        <div class="risk-stat-card high">
-            <div class="risk-stat-count">{high_count}</div>
-            <div class="risk-stat-label">High Severity</div>
-        </div>
-        <div class="risk-stat-card medium">
-            <div class="risk-stat-count">{medium_count}</div>
-            <div class="risk-stat-label">Medium Severity</div>
-        </div>
-        <div class="risk-stat-card low">
-            <div class="risk-stat-count">{low_count}</div>
-            <div class="risk-stat-label">Low Severity</div>
-        </div>
-        ''')
-        html_parts.append('</div>')
-        
-        # Add interactive donut chart for risk distribution
-        html_parts.append('<div class="risk-chart-container">')
-        html_parts.append('<canvas id="risk-severity-chart"></canvas>')
-        html_parts.append('</div>')
-        
-        # Risk type chart
-        if len(risk_types) > 1:
-            html_parts.append('<div class="risk-chart-container">')
-            html_parts.append('<canvas id="risk-type-chart"></canvas>')
-            html_parts.append('</div>')
-        
-        # Risk type summary table
-        if risk_types:
-            logger.debug("Generating risk type summary table")
-            html_parts.append(f"<h3>Risk Types</h3>")
-            html_parts.append("<div class='table-responsive'><table><thead><tr>")
-            html_parts.append("<th>Risk Type</th><th>Count</th><th>Percentage</th>")
-            html_parts.append("</tr></thead><tbody>")
-            total_risks = len(report.risk_flags)
-            for risk_type, count in sorted(risk_types.items(), key=lambda x: -x[1]):
-                percentage = (count / total_risks) * 100
-                html_parts.append(f"<tr><td>{risk_type}</td><td>{count}</td><td>{percentage:.1f}%</td></tr>")
-            html_parts.append("</tbody></table></div>")
-        
-        # Detailed risk list (collapsible) - LIMIT to first 100 to avoid hangs
-        logger.debug("Generating detailed risk list")
-        html_parts.append(f"<h3>Detailed Risk List (showing first 100 of {len(report.risk_flags)})</h3>")
-        for i, risk in enumerate(report.risk_flags[:100]):  # LIMIT to 100 to prevent hangs
-            severity_class = risk.severity.lower()
-            html_parts.append(f'<div class="risk-card {severity_class}" onclick="this.classList.toggle(\'expanded\')">')
-            html_parts.append(f'<div class="risk-type">{risk.risk_type} <span style="float:right;cursor:pointer;">+</span></div>')
-            html_parts.append(f'<div class="risk-description">{risk.description}</div>')
-            html_parts.append(f'<div class="risk-meta">')
-            if risk.project_key:
-                html_parts.append(f"Project: <a href='{self.jira_base}/projects/{risk.project_key}' target='_blank'>{risk.project_key}</a> | ")
-            if risk.employee_name:
-                html_parts.append(f"Employee: {risk.employee_name} | ")
-            html_parts.append(f"Severity: {risk.severity}")
-            html_parts.append('</div></div>')
-        
-        # Add JavaScript for risk charts
-        logger.debug("Adding JavaScript for risk charts")
-        html_parts.append(f"""
-        <script>
-        // Risk Severity Donut Chart
-        new Chart(document.getElementById('risk-severity-chart'), {{
-            type: 'doughnut',
-            data: {{
-                labels: ['High', 'Medium', 'Low'],
-                datasets: [{{
-                    data: [{high_count}, {medium_count}, {low_count}],
-                    backgroundColor: ['#e74c3c', '#f39c12', '#3498db'],
-                    borderWidth: 2
-                }}]
-            }},
-            options: {{
-                responsive: true,
-                maintainAspectRatio: false,
-                plugins: {{
-                    legend: {{ position: 'bottom' }},
-                    title: {{
-                        display: true,
-                        text: 'Risk Severity Distribution'
-                    }}
-                }}
-            }}
-        }});
-        """)
-        
-        if len(risk_types) > 1:
-            risk_type_labels = list(risk_types.keys())
-            risk_type_counts = list(risk_types.values())
-            html_parts.append(f"""
-        // Risk Type Bar Chart
-        new Chart(document.getElementById('risk-type-chart'), {{
-            type: 'bar',
-            data: {{
-                labels: {risk_type_labels},
-                datasets: [{{
-                    label: 'Count',
-                    data: {risk_type_counts},
-                    backgroundColor: '#3498db'
-                }}]
-            }},
-            options: {{
-                responsive: true,
-                maintainAspectRatio: false,
-                plugins: {{
-                    legend: {{ display: false }},
-                    title: {{
-                        display: true,
-                        text: 'Risk Types'
-                    }}
-                }},
-                scales: {{
-                    y: {{ beginAtZero: true }}
-                }}
-            }}
-        }});
-        """)
-        
-        html_parts.append("</script>")
-        
-        logger.debug("Risks section generation completed")
-        return ''.join(html_parts)
-    
-    def _generate_charts_section(self, report: ReportData) -> str:
-        """Generate charts section with Chart.js interactive charts."""
-        html = f"<h2>{self._['charts']}</h2>"
-        
-        # Prepare data for Chart.js charts
-        chart_data = self._prepare_chart_data(report)
-        
-        # 1. Closed tasks by week - Chart.js
-        if chart_data.get('closed_by_week'):
-            html += f"<h3>{self._['closed_by_week']}</h3>"
-            html += f'<div class="chart-container"><canvas id="chart-closed-week"></canvas></div>'
-            html += f'<script>const closedWeekData = {chart_data["closed_by_week"]};</script>'
-        
-        # 2. Worklog by employee - Chart.js (horizontal bars for readability)
-        if chart_data.get('worklog_by_employee'):
-            html += f"<h3>{self._['worklog_by_employee']}</h3>"
-            html += f'<div class="chart-container"><canvas id="chart-worklog-employee"></canvas></div>'
-            html += f'<script>const worklogEmployeeData = {chart_data["worklog_by_employee"]};</script>'
-        
-        # 3. Aging buckets - Chart.js
-        if chart_data.get('aging_buckets'):
-            html += f"<h3>{self._['aging_buckets']}</h3>"
-            html += f'<div class="chart-container"><canvas id="chart-aging-buckets"></canvas></div>'
-            html += f'<script>const agingBucketsData = {chart_data["aging_buckets"]};</script>'
-        
-        # 4. Reopened by project - Chart.js
-        if chart_data.get('reopened_by_project'):
-            html += f"<h3>{self._['reopened_by_project']}</h3>"
-            html += f'<div class="chart-container"><canvas id="chart-reopened-project"></canvas></div>'
-            html += f'<script>const reopenedProjectData = {chart_data["reopened_by_project"]};</script>'
-        
-        # 5. Cycle time by week - Chart.js
-        if chart_data.get('cycle_time_by_week'):
-            html += f"<h3>{self._['cycle_time_by_week']}</h3>"
-            html += f'<div class="chart-container"><canvas id="chart-cycle-time-week"></canvas></div>'
-            html += f'<script>const cycleTimeWeekData = {chart_data["cycle_time_by_week"]};</script>'
-        
-        # 6. Status by project - Chart.js
-        if chart_data.get('status_by_project'):
-            html += f"<h3>{self._['status_by_project']}</h3>"
-            html += f'<div class="chart-container"><canvas id="chart-status-project"></canvas></div>'
-            html += f'<script>const statusProjectData = {chart_data["status_by_project"]};</script>'
-        
-        # Add Chart.js initialization script
-        html += """
-        <script>
-        // Chart.js configuration for all charts
-        Chart.defaults.font.family = "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
-        Chart.defaults.color = '#333';
-        
-        // 1. Closed tasks by week
-        if (typeof closedWeekData !== 'undefined') {
-            new Chart(document.getElementById('chart-closed-week'), {
-                type: 'bar',
-                data: closedWeekData,
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    plugins: {
-                        legend: { position: 'top' },
-                        tooltip: { mode: 'index', intersect: false }
-                    },
-                    scales: {
-                        x: { stacked: true },
-                        y: { stacked: true, beginAtZero: true }
-                    }
-                }
-            });
-        }
-        
-        // 2. Worklog by employee (horizontal bars for readability)
-        if (typeof worklogEmployeeData !== 'undefined') {
-            new Chart(document.getElementById('chart-worklog-employee'), {
-                type: 'bar',
-                data: worklogEmployeeData,
-                options: {
-                    indexAxis: 'y',
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    plugins: {
-                        legend: { display: false },
-                        tooltip: { enabled: true }
-                    },
-                    scales: {
-                        x: { beginAtZero: true, title: { display: true, text: 'Hours' } },
-                        y: { ticks: { autoSkip: false } }
-                    }
-                }
-            });
-        }
-        
-        // 3. Aging buckets
-        if (typeof agingBucketsData !== 'undefined') {
-            new Chart(document.getElementById('chart-aging-buckets'), {
-                type: 'bar',
-                data: agingBucketsData,
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    plugins: {
-                        legend: { display: false },
-                        tooltip: { enabled: true }
-                    },
-                    scales: {
-                        y: { beginAtZero: true }
-                    }
-                }
-            });
-        }
-        
-        // 4. Reopened by project
-        if (typeof reopenedProjectData !== 'undefined') {
-            new Chart(document.getElementById('chart-reopened-project'), {
-                type: 'bar',
-                data: reopenedProjectData,
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    plugins: {
-                        legend: { display: false },
-                        tooltip: { enabled: true }
-                    },
-                    scales: {
-                        y: { beginAtZero: true }
-                    }
-                }
-            });
-        }
-        
-        // 5. Cycle time by week
-        if (typeof cycleTimeWeekData !== 'undefined') {
-            new Chart(document.getElementById('chart-cycle-time-week'), {
-                type: 'line',
-                data: cycleTimeWeekData,
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    plugins: {
-                        legend: { position: 'top' },
-                        tooltip: { mode: 'index', intersect: false }
-                    },
-                    scales: {
-                        y: { beginAtZero: true, title: { display: true, text: 'Days' } }
-                    }
-                }
-            });
-        }
-        
-        // 6. Status by project
-        if (typeof statusProjectData !== 'undefined') {
-            new Chart(document.getElementById('chart-status-project'), {
-                type: 'bar',
-                data: statusProjectData,
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    plugins: {
-                        legend: { position: 'top' },
-                        tooltip: { mode: 'index', intersect: false }
-                    },
-                    scales: {
-                        x: { stacked: true },
-                        y: { stacked: true, beginAtZero: true }
-                    }
-                }
-            });
-        }
-        </script>
-        """
-        
-        return html
-    
-    def _prepare_chart_data(self, report: ReportData) -> Dict:
-        """Prepare data for Chart.js charts."""
-        import json
-        
-        chart_data = {}
-        
-        # 1. Closed tasks by week
-        if report.weekly_throughput:
-            weekly_data = defaultdict(lambda: defaultdict(int))
-            for wt in report.weekly_throughput:
-                week_label = wt.week_start.strftime('%Y-%m-%d')
-                weekly_data[wt.project_key][week_label] = wt.closed_tasks_count
-            
-            projects = sorted(set(wt.project_key for wt in report.weekly_throughput))
-            weeks = sorted(set(wt.week_start.strftime('%Y-%m-%d') for wt in report.weekly_throughput))
-            
-            datasets = []
-            colors = ['#3498db', '#e74c3c', '#2ecc71', '#f39c12', '#9b59b']
-            for i, proj in enumerate(projects):
-                values = [weekly_data[proj].get(week, 0) for week in weeks]
-                datasets.append({
-                    'label': proj,
-                    'data': values,
-                    'backgroundColor': colors[i % len(colors)]
-                })
-            
-            chart_data['closed_by_week'] = json.dumps({
-                'labels': weeks,
-                'datasets': datasets
-            })
-        
-        # 2. Worklog by employee (horizontal bars)
-        if report.employee_metrics:
-            employees = [emp.display_name for emp in report.employee_metrics]
-            hours = [emp.worklog_hours for emp in report.employee_metrics]
-            
-            chart_data['worklog_by_employee'] = json.dumps({
-                'labels': employees,
-                'datasets': [{
-                    'label': 'Hours',
-                    'data': hours,
-                    'backgroundColor': '#3498db'
-                }]
-            })
-        
-        # 3. Aging buckets
-        buckets = {"0-7": 0, "8-14": 0, "15-30": 0, "30+": 0}
-        if report.aging_wip_data:
-            for aw in report.aging_wip_data:
-                if aw.aging_days <= 7:
-                    buckets["0-7"] += 1
-                elif aw.aging_days <= 14:
-                    buckets["8-14"] += 1
-                elif aw.aging_days <= 30:
-                    buckets["15-30"] += 1
-                else:
-                    buckets["30+"] += 1
-            
-            chart_data['aging_buckets'] = json.dumps({
-                'labels': list(buckets.keys()),
-                'datasets': [{
-                    'label': 'Count',
-                    'data': list(buckets.values()),
-                    'backgroundColor': '#f39c12'
-                }]
-            })
-        
-        # 4. Reopened by project
-        if report.project_metrics:
-            projects = [proj.project_key for proj in report.project_metrics]
-            reopened = [proj.reopened_tasks for proj in report.project_metrics]
-            
-            chart_data['reopened_by_project'] = json.dumps({
-                'labels': projects,
-                'datasets': [{
-                    'label': 'Reopened Count',
-                    'data': reopened,
-                    'backgroundColor': '#e74c3c'
-                }]
-            })
-        
-        # 5. Cycle time by week
-        if report.weekly_cycle_time:
-            week_labels = sorted(set(
-                wt.week_start.strftime('%Y-%m-%d') 
-                for wt in report.weekly_cycle_time
-            ))
-            projects = sorted(set(wt.project_key for wt in report.weekly_cycle_time))
-            
-            datasets = []
-            colors = ['#3498db', '#e74c3c', '#2ecc71', '#f39c12', '#9b59b']
-            for i, proj in enumerate(projects):
-                values = []
-                for week in week_labels:
-                    ct = next(
-                        (wt for wt in report.weekly_cycle_time 
-                            if wt.week_start.strftime('%Y-%m-%d') == week and wt.project_key == proj
-                        ), None)
-                    values.append(ct.median_cycle_time if ct and ct.median_cycle_time else None)
-                
-                # Filter out None values
-                filtered_values = [v for v in values if v is not None]
-                if filtered_values:
-                    datasets.append({
-                        'label': proj,
-                        'data': values,
-                        'borderColor': colors[i % len(colors)],
-                        'fill': False,
-                        'tension': 0.1
-                    })
-            
-            chart_data['cycle_time_by_week'] = json.dumps({
-                'labels': week_labels,
-                'datasets': datasets
-            })
-        
-        # 6. Status by project
-        if report.status_distribution:
-            all_statuses = sorted(set(sd.status for sd in report.status_distribution))
-            all_projects = sorted(set(sd.project_key for sd in report.status_distribution))
-            
-            data = defaultdict(lambda: defaultdict(int))
-            for sd in report.status_distribution:
-                data[sd.project_key][sd.status] = sd.count
-            
-            datasets = []
-            colors = ['#3498db', '#e74c3c', '#2ecc71', '#f39c12', '#9b59b', '#1abc9c']
-            for i, status in enumerate(all_statuses):
-                values = [data[proj].get(status, 0) for proj in all_projects]
-                datasets.append({
-                    'label': status,
-                    'data': values,
-                    'backgroundColor': colors[i % len(colors)]
-                })
-            
-            chart_data['status_by_project'] = json.dumps({
-                'labels': all_projects,
-                'datasets': datasets
-            })
-        
-        return chart_data
-    
-    def _generate_raw_data_sections(self, report: ReportData) -> str:
-        """Generate raw data sections with responsive wrappers and clickable issue keys."""
-        html = ""
-        
-        # Raw Issues
-        if report.raw_issues:
-            html += f"<h2>{self._['raw_issues']}</h2>"
-            html += "<div class='table-responsive'><table><thead><tr>"
-            for header in [self._["issue_key"], self._["project_key"], self._["issue_type"],
-                          self._["summary"], self._["status"], self._["created"],
-                          self._["assignee"], self._["reporter"], self._["due_date"],
-                          self._["priority"], self._["cycle_time_days"], self._["reopened_flag"],
-                          self._["blocked_flag"], self._["overdue_flag"], self._["aging_days"]]:
-                html += f"<th>{header}</th>"
-            html += "</tr></thead><tbody>"
-            
-            for issue in report.raw_issues:
-                html += "<tr>"
-                html += f"<td><a href='{self.jira_base}/browse/{issue.issue_key}' target='_blank'>{issue.issue_key}</a></td>"
-                html += f"<td><a href='{self.jira_base}/projects/{issue.project_key}' target='_blank'>{issue.project_key}</a></td>"
-                html += f"<td>{issue.issue_type or ''}</td>"
-                html += f"<td>{issue.summary}</td>"
-                html += f"<td>{issue.status}</td>"
-                html += f"<td>{issue.created.strftime('%Y-%m-%d') if issue.created else ''}</td>"
-                html += f"<td>{issue.assignee_display_name or ''}</td>"
-                html += f"<td>{issue.reporter or ''}</td>"
-                html += f"<td>{issue.due_date.strftime('%Y-%m-%d') if issue.due_date else ''}</td>"
-                html += f"<td>{issue.priority or ''}</td>"
-                html += f"<td>{f'{issue.cycle_time_days:.2f}' if issue.cycle_time_days is not None else 'N/A'}</td>"
-                html += f"<td>{'Yes' if issue.reopened_flag else 'No'}</td>"
-                html += f"<td>{'Yes' if issue.blocked_flag else 'No'}</td>"
-                html += f"<td>{'Yes' if issue.overdue_flag else 'No'}</td>"
-                html += f"<td>{issue.aging_days if issue.aging_days else 'N/A'}</td>"
-                html += "</tr>"
-            
-            html += "</tbody></table></div>"
-        
-        # Raw Worklogs
-        if report.raw_worklogs:
-            html += f"<h2>{self._['raw_worklogs']}</h2>"
-            html += "<div class='table-responsive'><table><thead><tr>"
-            for header in [self._["issue_key"], self._["project_key"], self._["employee_name"],
-                          self._["started"], self._["time_spent_hours"], self._["comment"]]:
-                html += f"<th>{header}</th>"
-            html += "</tr></thead><tbody>"
-            
-            for wl in report.raw_worklogs:
-                html += "<tr>"
-                html += f"<td><a href='{self.jira_base}/browse/{wl.issue_key}' target='_blank'>{wl.issue_key}</a></td>"
-                html += f"<td><a href='{self.jira_base}/projects/{wl.project_key}' target='_blank'>{wl.project_key}</a></td>"
-                html += f"<td>{wl.display_name}</td>"
-                html += f"<td>{wl.started.strftime('%Y-%m-%d %H:%M') if wl.started else ''}</td>"
-                html += f"<td>{wl.time_spent_hours:.2f}</td>"
-                html += f"<td>{wl.comment or ''}</td>"
-                html += "</tr>"
-            
-            html += "</tbody></table></div>"
-        
-        # Raw Transitions
-        if report.raw_transitions:
-            html += f"<h2>{self._['raw_transitions']}</h2>"
-            html += "<div class='table-responsive'><table><thead><tr>"
-            for header in [self._["issue_key"], self._["project_key"], self._["from_status"],
-                          self._["to_status"], self._["transition_date"], self._["transition_author"]]:
-                html += f"<th>{header}</th>"
-            html += "</tr></thead><tbody>"
-            
-            for trans in report.raw_transitions:
-                html += "<tr>"
-                html += f"<td><a href='{self.jira_base}/browse/{trans.issue_key}' target='_blank'>{trans.issue_key}</a></td>"
-                html += f"<td><a href='{self.jira_base}/projects/{trans.project_key}' target='_blank'>{trans.project_key}</a></td>"
-                html += f"<td>{trans.from_status}</td>"
-                html += f"<td>{trans.to_status}</td>"
-                html += f"<td>{trans.transition_date.strftime('%Y-%m-%d %H:%M') if trans.transition_date else ''}</td>"
-                html += f"<td>{trans.transition_author or ''}</td>"
-                html += "</tr>"
-            
-            html += "</tbody></table></div>"
-        
-        return html
-
-
-# Localization strings (same as xlsx_exporter)
-LOCALIZATION = {
-    "en": {
-        "summary": "Summary",
-        "by_employee": "By Employee",
-        "by_project": "By Project",
-        "weekly_throughput": "Weekly Throughput",
-        "cycle_time": "Cycle Time",
-        "aging_wip": "Aging WIP",
-        "overdue": "Overdue",
-        "reopened": "Reopened",
-        "raw_issues": "Raw Issues",
-        "raw_worklogs": "Raw Worklogs",
-        "raw_transitions": "Raw Transitions",
-        "risks": "Risks",
-        "metric": "Metric",
-        "value": "Value",
-        "report_period": "Report Period",
-        "total_worklog_hours": "Total Worklog Hours",
-        "total_created_issues": "Total Created Issues",
-        "total_closed_issues": "Total Closed Issues",
-        "throughput": "Throughput",
-        "median_cycle_time": "Median Cycle Time (days)",
-        "p85_cycle_time": "85th Percentile Cycle Time (days)",
-        "overdue_tasks": "Overdue Tasks",
-        "reopened_tasks": "Reopened Tasks",
-        "blocked_tasks": "Blocked Tasks",
-        "top_oldest_issues": "Top 5 Oldest Open Issues",
-        "issue_key": "Issue Key",
-        "summary": "Summary",
-        "project_key": "Project Key",
-        "status": "Status",
-        "created": "Created",
-        "aging_days": "Aging (days)",
-        "assignee": "Assignee",
-        "employee_name": "Employee Name",
-        "account_id": "Account ID",
-        "worklog_hours": "Worklog Hours",
-        "created_issues": "Created Issues",
-        "closed_issues": "Closed Issues",
-        "reopen_count": "Reopened Count",
-        "active_wip": "Active WIP",
-        "avg_cycle_time": "Avg Cycle Time",
-        "median_cycle_time": "Median Cycle Time",
-        "overdue_count": "Overdue Count",
-        "project": "Project",
-        "throughput_count": "Throughput",
-        "wip_count": "WIP Count",
-        "aging_7": "Aging >7 days",
-        "aging_14": "Aging >14 days",
-        "aging_30": "Aging >30 days",
-        "blocked_count": "Blocked Count",
-        "week_start": "Week Start",
-        "week_end": "Week End",
-        "created_count": "Created Count",
-        "closed_count": "Closed Count",
-        "net_flow": "Net Flow",
-        "issue_type": "Issue Type",
-        "reporter": "Reporter",
-        "start_progress_date": "Start Progress Date",
-        "done_date": "Done Date",
-        "cycle_time_days": "Cycle Time (days)",
-        "cycle_time_hours": "Cycle Time (hours)",
-        "reopened_flag": "Reopened?",
-        "last_status_change": "Last Status Change",
-        "blocked_flag": "Blocked?",
-        "due_date": "Due Date",
-        "overdue_flag": "Overdue?",
-        "priority": "Priority",
-        "days_overdue": "Days Overdue",
-        "reopen_date": "Reopen Date",
-        "current_status": "Current Status",
-        "from_status": "From Status",
-        "to_status": "To Status",
-        "transition_date": "Transition Date",
-        "transition_author": "Transition Author",
-        "started": "Started",
-        "time_spent_hours": "Time Spent (hours)",
-        "comment": "Comment",
-        "risk_type": "Risk Type",
-        "description": "Description",
-        "severity": "Severity",
-        "total": "TOTAL",
-        "cycle_time_by_week": "Cycle Time by Week",
-        "status_by_project": "Status by Project",
-        "charts": "Charts",
-        "closed_by_week": "Closed Tasks by Week",
-        "cycle_time_by_week": "Cycle Time by Week",
-        "worklog_by_employee": "Worklog by Employee",
-        "aging_buckets": "Aging WIP Buckets",
-        "status_by_project": "Status by Project",
-        "reopened_by_project": "Reopened by Project",
-    },
-    "ru": {
-        "summary": "Сводка",
-        "by_employee": "По сотрудникам",
-        "by_project": "По проектам",
-        "weekly_throughput": "Недельный Throughput",
-        "cycle_time": "Cycle Time",
-        "aging_wip": "Aging WIP",
-        "overdue": "Просроченные",
-        "reopened": "Переоткрытые",
-        "raw_issues": "Сырые данные задач",
-        "raw_worklogs": "Сырые данные трудозатрат",
-        "raw_transitions": "Сырые данные переходов",
-        "risks": "Риски",
-        "metric": "Показатель",
-        "value": "Значение",
-        "report_period": "Период отчета",
-        "total_worklog_hours": "Всего часов трудозатрат",
-        "total_created_issues": "Всего создано задач",
-        "total_closed_issues": "Всего закрыто задач",
-        "throughput": "Throughput",
-        "median_cycle_time": "Медиана Cycle Time (дни)",
-        "p85_cycle_time": "85-й перцентиль Cycle Time (дни)",
-        "overdue_tasks": "Просроченные задачи",
-        "reopened_tasks": "Переоткрытые задачи",
-        "blocked_tasks": "Заблокированные задачи",
-        "top_oldest_issues": "Топ-5 самых старых открытых задач",
-        "issue_key": "Ключ задачи",
-        "summary": "Название",
-        "project_key": "Проект",
-        "status": "Статус",
-        "created": "Создана",
-        "aging_days": "Возраст (дни)",
-        "assignee": "Исполнитель",
-        "employee_name": "Сотрудник",
-        "account_id": "ID аккаунта",
-        "worklog_hours": "Часы трудозатрат",
-        "created_issues": "Создано задач",
-        "closed_issues": "Закрыто задач",
-        "reopen_count": "Кол-во переоткрытий",
-        "active_wip": "Активный WIP",
-        "avg_cycle_time": "Средний Cycle Time",
-        "median_cycle_time": "Медиана Cycle Time",
-        "overdue_count": "Просрочено",
-        "project": "Проект",
-        "throughput_count": "Throughput",
-        "wip_count": "WIP",
-        "aging_7": "Возраст >7 дней",
-        "aging_14": "Возраст >14 дней",
-        "aging_30": "Возраст >30 дней",
-        "blocked_count": "Заблокировано",
-        "week_start": "Начало недели",
-        "week_end": "Конец недели",
-        "created_count": "Создано",
-        "closed_count": "Закрыто",
-        "net_flow": "Чистый поток",
-        "issue_type": "Тип задачи",
-        "reporter": "Репортер",
-        "start_progress_date": "Дата начала работы",
-        "done_date": "Дата завершения",
-        "cycle_time_days": "Cycle Time (дни)",
-        "cycle_time_hours": "Cycle Time (часы)",
-        "reopened_flag": "Переоткрыта?",
-        "last_status_change": "Последний переход",
-        "blocked_flag": "Заблокирована?",
-        "due_date": "Срок",
-        "overdue_flag": "Просрочена?",
-        "priority": "Приоритет",
-        "days_overdue": "Дней просрочки",
-        "reopen_date": "Дата переоткрытия",
-        "current_status": "Текущий статус",
-        "from_status": "Из статуса",
-        "to_status": "В статус",
-        "transition_date": "Дата перехода",
-        "transition_author": "Автор перехода",
-        "started": "Начало",
-        "time_spent_hours": "Часы",
-        "comment": "Комментарий",
-        "risk_type": "Тип риска",
-        "description": "Описание",
-        "severity": "Серьезность",
-        "total": "ИТОГО",
-        "cycle_time_by_week": "Cycle Time по неделям",
-        "status_by_project": "Статусы по проектам",
-        "charts": "Графики",
-        "closed_by_week": "Закрытые задачи по неделям",
-        "cycle_time_by_week": "Cycle Time по неделям",
-        "worklog_by_employee": "Трудозатраты по сотрудникам",
-        "aging_buckets": "Возрастные группы WIP",
-        "status_by_project": "Статусы по проектам",
-        "reopened_by_project": "Переоткрытые по проектам",
-    }
-}

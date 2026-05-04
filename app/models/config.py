@@ -16,6 +16,7 @@ class Settings(BaseSettings):
     JIRA_EXCLUDED_STATUSES: str = "Repetead"
     TIMEZONE: str = "Europe/Minsk"
     REPORT_LANG: str = "ru"
+    JIRA_USER_GROUP: str = "IT"
     
     # Computed properties
     @property

@@ -184,17 +184,6 @@ class ReopenedData(BaseModel):
     current_status: str = ""
 
 
-class RiskFlag(BaseModel):
-    """Risk flag data."""
-    
-    risk_type: str
-    description: str
-    severity: str = "medium"  # low, medium, high
-    issue_keys: List[str] = []
-    project_key: Optional[str] = None
-    employee_name: Optional[str] = None
-
-
 class ReportData(BaseModel):
     """Complete report data structure."""
     
@@ -231,9 +220,6 @@ class ReportData(BaseModel):
     raw_issues: List[IssueData] = []
     raw_worklogs: List[WorklogEntry] = []
     raw_transitions: List[IssueTransition] = []
-    
-    # Risk flags
-    risk_flags: List[RiskFlag] = []
     
     # Top oldest open issues
     top_oldest_issues: List[Dict[str, Any]] = []
@@ -299,9 +285,6 @@ class ReportData(BaseModel):
     raw_issues: List[IssueData] = []
     raw_worklogs: List[WorklogEntry] = []
     raw_transitions: List[IssueTransition] = []
-    
-    # Risk flags
-    risk_flags: List[RiskFlag] = []
     
     # Top oldest open issues
     top_oldest_issues: List[Dict[str, Any]] = []

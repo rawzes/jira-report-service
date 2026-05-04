@@ -17,7 +17,6 @@ try:
         ReportData, EmployeeMetrics, ProjectMetrics, 
         IssueData, WorklogEntry, IssueTransition,
         WeeklyThroughput, WeeklyCycleTime, CycleTimeData, AgingWipData,
-        OverdueData, ReopenedData, RiskFlag, StatusDistribution
     )
     from app.services.html_exporter import HtmlExporter
     logger.info("Modules imported successfully")
@@ -44,7 +43,6 @@ try:
         aging_wip_data=[],
         overdue_data=[],
         reopened_data=[],
-        risk_flags=[],
         include_raw_data=False
     )
     logger.info("Test data created successfully")

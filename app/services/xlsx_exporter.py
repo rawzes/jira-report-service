@@ -20,7 +20,7 @@ from app.models.schemas import (
     ReportData, EmployeeMetrics, ProjectMetrics,
     IssueData, WorklogEntry, IssueTransition,
     WeeklyThroughput, WeeklyCycleTime, CycleTimeData, AgingWipData,
-    OverdueData, ReopenedData, RiskFlag, StatusDistribution
+    OverdueData, ReopenedData, StatusDistribution
 )
 from app.models.config import settings
 
@@ -40,7 +40,6 @@ LOCALIZATION = {
         "raw_issues": "Raw Issues",
         "raw_worklogs": "Raw Worklogs",
         "raw_transitions": "Raw Transitions",
-        "risks": "Risks",
         "metric": "Metric",
         "value": "Value",
         "report_period": "Report Period",
@@ -105,7 +104,6 @@ LOCALIZATION = {
         "started": "Started",
         "time_spent_hours": "Time Spent (hours)",
         "comment": "Comment",
-        "risk_type": "Risk Type",
         "description": "Description",
         "severity": "Severity",
         "total": "TOTAL",
@@ -131,7 +129,6 @@ LOCALIZATION = {
         "raw_issues": "Сырые данные задач",
         "raw_worklogs": "Сырые данные трудозатрат",
         "raw_transitions": "Сырые данные переходов",
-        "risks": "Риски",
         "metric": "Показатель",
         "value": "Значение",
         "report_period": "Период отчета",
@@ -196,7 +193,6 @@ LOCALIZATION = {
         "started": "Начало",
         "time_spent_hours": "Часы",
         "comment": "Комментарий",
-        "risk_type": "Тип риска",
         "description": "Описание",
         "severity": "Серьезность",
         "total": "ИТОГО",
@@ -267,10 +263,6 @@ class XlsxExporter:
             self._create_raw_issues_sheet(wb, report)
             self._create_raw_worklogs_sheet(wb, report)
             self._create_raw_transitions_sheet(wb, report)
-        
-        # Risks sheet
-        self._create_risks_sheet(wb, report)
-        
         # Charts sheet
         self._create_charts_sheet(wb, report)
         
@@ -744,31 +736,6 @@ class XlsxExporter:
         
         # Set column widths
         self._set_column_widths(ws, [15, 12, 15, 15, 18, 20])
-    
-    def _create_risks_sheet(self, wb: Workbook, report: ReportData):
-        """Create Risks sheet."""
-        ws = wb.create_sheet(self._["risks"])
-        
-        # Headers
-        headers = [
-            self._["risk_type"], self._["description"], self._["severity"],
-            self._["project_key"], self._["employee_name"]
-        ]
-        for col, header in enumerate(headers, 1):
-            ws.cell(row=1, column=col, value=header)
-        self._format_header_row(ws, 1)
-        
-        # Data rows
-        for idx, risk in enumerate(report.risk_flags, 2):
-            ws.cell(row=idx, column=1, value=risk.risk_type)
-            ws.cell(row=idx, column=2, value=risk.description)
-            ws.cell(row=idx, column=3, value=risk.severity)
-            ws.cell(row=idx, column=4, value=risk.project_key)
-            ws.cell(row=idx, column=5, value=risk.employee_name)
-            self._format_data_row(ws, idx, 5, alt=(idx % 2 == 0))
-        
-        # Set column widths
-        self._set_column_widths(ws, [20, 60, 12, 15, 20])
     
     def _create_charts_sheet(self, wb: Workbook, report: ReportData):
         """Create Charts sheet with embedded chart images."""

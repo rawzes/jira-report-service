@@ -50,7 +50,6 @@ These metrics help identify bottlenecks, predict delivery dates, and improve pro
 9. **Raw Issues**: Complete issue data export
 10. **Raw Worklogs**: Complete worklog data export
 11. **Raw Transitions**: All status transitions history
-12. **Risks**: Automated risk flags and warnings
 13. **Charts**: Visual charts for key metrics
 
 ### Visual Charts (in XLSX)
@@ -60,15 +59,6 @@ These metrics help identify bottlenecks, predict delivery dates, and improve pro
 - Bar chart: Aging WIP buckets (0-7, 8-14, 15-30, 30+ days)
 - Stacked bar: Status distribution by project
 - Bar chart: Reopened tasks by project
-
-### Automated Risk Flags
-- Projects with declining throughput (2+ weeks)
-- Projects with growing cycle time
-- Tasks older than 14 days in active statuses
-- Tasks without assignee
-- Overdue tasks
-- Reopened tasks
-- Diagnostic: Employees with high worklog but low closures
 
 ### Technical Features
 - **Multi-Format Output**: Returns XLSX or JSON based on `format` parameter
@@ -360,10 +350,6 @@ The generated XLSX file contains the following sheets:
 
 ### 11. Raw Transitions (optional)
 - All status transitions with dates and authors
-
-### 12. Risks
-- Risk Type, Description, Severity
-- Project Key, Employee Name
 
 ### 13. Charts
 - Visual charts for key metrics

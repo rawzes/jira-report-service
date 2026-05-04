@@ -11,6 +11,63 @@
             box-sizing: border-box;
         }
 
+        .info-section {
+            background: linear-gradient(135deg, #f5f7ff 0%, #faf5ff 100%);
+            border: 2px solid #e8e0f0;
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 25px;
+        }
+
+        .info-section h3 {
+            color: #5a4a7a;
+            font-size: 16px;
+            margin-bottom: 12px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .info-section h3::before {
+            content: "📋";
+            font-size: 18px;
+        }
+
+        .info-section p {
+            color: #555;
+            font-size: 13px;
+            line-height: 1.6;
+            margin-bottom: 12px;
+        }
+
+        .info-section ul {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+        }
+
+        .info-section li {
+            color: #555;
+            font-size: 13px;
+            line-height: 1.6;
+            padding: 4px 0 4px 24px;
+            position: relative;
+        }
+
+        .info-section li::before {
+            content: "✓";
+            position: absolute;
+            left: 0;
+            color: #667eea;
+            font-weight: bold;
+            font-size: 14px;
+        }
+
+        .info-section .highlight {
+            color: #667eea;
+            font-weight: 600;
+        }
+
         body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
@@ -306,6 +363,25 @@
         <h1>🎯 Генератор отчетов Jira</h1>
         <p class="subtitle">Создание отчетов за произвольный период в формате HTML или XLSX</p>
         
+        <div class="info-section">
+            <h3>Об отчете</h3>
+            <p>
+                Формируется отчет по производительности сотрудников на основе данных Jira.
+                Выгружаются данные по пользователям из группы <span class="highlight">IT</span>.
+                Отчет всегда включает разбивку по проектам и исходные данные.
+            </p>
+            <ul>
+                <li>Пропускная способность (throughput) — количество выполненных задач</li>
+                <li>Время цикла (cycle time) — среднее время от старта до завершения задачи</li>
+                <li>Стареющие задачи в работе (aging WIP) — задачи, застрявшие в процессе</li>
+                <li>Просроченные задачи (overdue tasks) — задачи с нарушенным сроком</li>
+                <li>Переоткрытые задачи (reopened tasks) — задачи, возвращенные в работу</li>
+                <li>Метрики по сотрудникам — детальная статистика работы каждого сотрудника</li>
+                <li>Разбивка по проектам — распределение задач и метрик по проектам</li>
+                <li>Исходные данные (raw data) — полная выгрузка всех задач с деталями</li>
+            </ul>
+        </div>
+        
         <div class="alert error" id="errorAlert"></div>
         <div class="alert success" id="successAlert"></div>
         
@@ -326,20 +402,6 @@
                         <label for="endDate" style="font-size: 12px;">Дата окончания</label>
                         <input type="date" id="endDate" required />
                     </div>
-                </div>
-            </div>
-            
-            <div class="form-group">
-                <label>Параметры</label>
-                <div class="checkbox-group">
-                    <label>
-                        <input type="checkbox" id="groupByProjects" checked />
-                        Группировать по проектам
-                    </label>
-                    <label>
-                        <input type="checkbox" id="includeRawData" checked />
-                        Включить исходные данные
-                    </label>
                 </div>
             </div>
             
@@ -507,8 +569,8 @@
             const startDate = document.getElementById('startDate').value;
             const endDate = document.getElementById('endDate').value;
             const projectKeys = document.getElementById('projectKeys').value;
-            const groupByProjects = document.getElementById('groupByProjects').checked;
-            const includeRawData = document.getElementById('includeRawData').checked;
+            const groupByProjects = true;
+            const includeRawData = true;
             const format = document.querySelector('input[name="format"]:checked')?.value || 'html';
             
             // Validate dates

@@ -22,10 +22,8 @@ async def generate_monthly_report_get(
     year: int,
     month: int,
     project_keys: Optional[str] = None,
-    group_by_projects: bool = True,
-    include_raw_data: bool = True,
     lang: str = Query("ru", description="Language for report (en, ru)"),
-    format: str = Query("html", description="Response format: html, xlsx or json")
+    format: str = Query("html", description="Response format: html, htmldownload, xlsx or json")
 ):
     """
     Generate monthly Jira report (GET endpoint).
@@ -34,10 +32,8 @@ async def generate_monthly_report_get(
         year: Report year
         month: Report month (1-12)
         project_keys: Comma-separated project keys (e.g., "PROJ1,PROJ2")
-        group_by_projects: Whether to group results by projects
-        include_raw_data: Whether to include raw data sheets
         lang: Language for report (en, ru)
-        format: Response format (html, xlsx or json)
+        format: Response format (html, htmldownload, xlsx or json)
     
     Returns:
         HTMLResponse, StreamingResponse with XLSX file, or JSONResponse with report data
@@ -47,13 +43,13 @@ async def generate_monthly_report_get(
     if project_keys:
         parsed_project_keys = [k.strip() for k in project_keys.split(",") if k.strip()]
     
-    # Create request object
+    # Create request object with hardcoded group_by_projects=True and include_raw_data=True
     request = MonthlyReportRequest(
         year=year,
         month=month,
         project_keys=parsed_project_keys,
-        group_by_projects=group_by_projects,
-        include_raw_data=include_raw_data
+        group_by_projects=True,
+        include_raw_data=True
     )
     
     return await _generate_report(request, lang, format)
@@ -63,7 +59,7 @@ async def generate_monthly_report_get(
 async def generate_monthly_report_post(
     request: MonthlyReportRequest,
     lang: str = "ru",
-    format: str = Query("html", description="Response format: html, xlsx or json")
+    format: str = Query("html", description="Response format: html, htmldownload, xlsx or json")
 ):
     """
     Generate monthly Jira report (POST endpoint).
@@ -71,11 +67,14 @@ async def generate_monthly_report_post(
     Args:
         request: Monthly report request parameters
         lang: Language for report (en, ru)
-        format: Response format (html, xlsx or json)
+        format: Response format (html, htmldownload, xlsx or json)
     
     Returns:
         HTMLResponse, StreamingResponse with XLSX file, or JSONResponse with report data
     """
+    # Override to always enable these options
+    request.group_by_projects = True
+    request.include_raw_data = True
     return await _generate_report(request, lang, format)
 
 
@@ -84,10 +83,8 @@ async def generate_custom_report_get(
     start_date: date = Query(..., description="Start date (YYYY-MM-DD)"),
     end_date: date = Query(..., description="End date (YYYY-MM-DD)"),
     project_keys: Optional[str] = None,
-    group_by_projects: bool = True,
-    include_raw_data: bool = True,
     lang: str = Query("ru", description="Language for report (en, ru)"),
-    format: str = Query("html", description="Response format: html, xlsx or json")
+    format: str = Query("html", description="Response format: html, htmldownload, xlsx or json")
 ):
     """
     Generate custom date range Jira report (GET endpoint).
@@ -96,10 +93,8 @@ async def generate_custom_report_get(
         start_date: Report start date (YYYY-MM-DD)
         end_date: Report end date (YYYY-MM-DD)
         project_keys: Comma-separated project keys (e.g., "PROJ1,PROJ2")
-        group_by_projects: Whether to group results by projects
-        include_raw_data: Whether to include raw data sheets
         lang: Language for report (en, ru)
-        format: Response format (html, xlsx or json)
+        format: Response format (html, htmldownload, xlsx or json)
     
     Returns:
         HTMLResponse, StreamingResponse with XLSX file, or JSONResponse with report data
@@ -109,13 +104,13 @@ async def generate_custom_report_get(
     if project_keys:
         parsed_project_keys = [k.strip() for k in project_keys.split(",") if k.strip()]
     
-    # Create request object
+    # Create request object with hardcoded group_by_projects=True and include_raw_data=True
     request = CustomReportRequest(
         start_date=start_date,
         end_date=end_date,
         project_keys=parsed_project_keys,
-        group_by_projects=group_by_projects,
-        include_raw_data=include_raw_data
+        group_by_projects=True,
+        include_raw_data=True
     )
     
     return await _generate_custom_report(request, lang, format)
@@ -125,7 +120,7 @@ async def generate_custom_report_get(
 async def generate_custom_report_post(
     request: CustomReportRequest,
     lang: str = "ru",
-    format: str = Query("html", description="Response format: html, xlsx or json")
+    format: str = Query("html", description="Response format: html, htmldownload, xlsx or json")
 ):
     """
     Generate custom date range Jira report (POST endpoint).
@@ -133,11 +128,14 @@ async def generate_custom_report_post(
     Args:
         request: Custom report request parameters
         lang: Language for report (en, ru)
-        format: Response format (html, xlsx or json)
+        format: Response format (html, htmldownload, xlsx or json)
     
     Returns:
         HTMLResponse, StreamingResponse with XLSX file, or JSONResponse with report data
     """
+    # Override to always enable these options
+    request.group_by_projects = True
+    request.include_raw_data = True
     return await _generate_custom_report(request, lang, format)
 
 
@@ -163,9 +161,20 @@ async def _generate_report(request: MonthlyReportRequest, lang: str = "ru", form
             format_lower = format.lower()
             if format_lower == "json":
                 return _json_response(report)
-            elif format_lower == "html":
+            elif format_lower == "html" or format_lower == "htmldownload":
                 html_exporter = HtmlExporter(lang)
                 html_content = html_exporter.generate(report)
+                filename = f"jira_report_{request.year}_{request.month:02d}.html"
+                
+                if format_lower == "htmldownload":
+                    return StreamingResponse(
+                        io.BytesIO(html_content.encode('utf-8')),
+                        media_type="text/html",
+                        headers={
+                            "Content-Disposition": f"attachment; filename={filename}",
+                            "Content-Type": "text/html; charset=utf-8"
+                        }
+                    )
                 return HTMLResponse(content=html_content)
             else:
                 xlsx_exporter = XlsxExporter(lang)
@@ -209,9 +218,20 @@ async def _generate_custom_report(request: CustomReportRequest, lang: str = "ru"
             format_lower = format.lower()
             if format_lower == "json":
                 return _json_response(report)
-            elif format_lower == "html":
+            elif format_lower == "html" or format_lower == "htmldownload":
                 html_exporter = HtmlExporter(lang)
                 html_content = html_exporter.generate(report)
+                filename = f"jira_report_{request.start_date.year}_{request.start_date.month:02d}.html"
+                
+                if format_lower == "htmldownload":
+                    return StreamingResponse(
+                        io.BytesIO(html_content.encode('utf-8')),
+                        media_type="text/html",
+                        headers={
+                            "Content-Disposition": f"attachment; filename={filename}",
+                            "Content-Type": "text/html; charset=utf-8"
+                        }
+                    )
                 return HTMLResponse(content=html_content)
             else:
                 xlsx_exporter = XlsxExporter(lang)

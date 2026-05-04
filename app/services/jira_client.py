@@ -306,3 +306,41 @@ class JiraClient:
             f"(created >= '{start_str}' OR updated >= '{start_str}') "
             f"AND created < '{end_str}'"
         )
+    
+    async def get_group_members(
+        self,
+        group_name: str,
+        max_results: int = 50
+    ) -> List[Dict[str, Any]]:
+        """
+        Get members of a Jira group.
+        
+        Args:
+            group_name: Name of the Jira group
+            max_results: Maximum results per page
+            
+        Returns:
+            List of user objects in the group
+        """
+        url = "/rest/api/3/group/member"
+        params = {
+            "groupname": group_name,
+            "maxResults": max_results
+        }
+        
+        all_members = []
+        
+        while True:
+            response = await self._make_request("GET", url, params=params)
+            data = response.json()
+            
+            members = data.get("values", [])
+            all_members.extend(members)
+            
+            # Check for pagination
+            if data.get("isLast", True):
+                break
+                
+            params["startAt"] = data.get("startAt", 0) + len(members)
+        
+        return all_members
