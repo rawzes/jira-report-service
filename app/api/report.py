@@ -1,0 +1,268 @@
+import logging
+from fastapi import APIRouter, HTTPException, Query
+from fastapi.responses import StreamingResponse, JSONResponse, HTMLResponse
+from typing import Optional, List
+from datetime import date
+import io
+import json
+
+from app.models.schemas import MonthlyReportRequest, CustomReportRequest
+from app.services.jira_client import JiraClient
+from app.services.report_builder import ReportBuilder
+from app.services.xlsx_exporter import XlsxExporter
+from app.services.html_exporter import HtmlExporter
+
+logger = logging.getLogger(__name__)
+
+router = APIRouter(prefix="/reports", tags=["reports"])
+
+
+@router.get("/monthly")
+async def generate_monthly_report_get(
+    year: int,
+    month: int,
+    project_keys: Optional[str] = None,
+    group_by_projects: bool = True,
+    include_raw_data: bool = True,
+    lang: str = Query("ru", description="Language for report (en, ru)"),
+    format: str = Query("html", description="Response format: html, xlsx or json")
+):
+    """
+    Generate monthly Jira report (GET endpoint).
+    
+    Args:
+        year: Report year
+        month: Report month (1-12)
+        project_keys: Comma-separated project keys (e.g., "PROJ1,PROJ2")
+        group_by_projects: Whether to group results by projects
+        include_raw_data: Whether to include raw data sheets
+        lang: Language for report (en, ru)
+        format: Response format (html, xlsx or json)
+    
+    Returns:
+        HTMLResponse, StreamingResponse with XLSX file, or JSONResponse with report data
+    """
+    # Parse project_keys from comma-separated string to list
+    parsed_project_keys = None
+    if project_keys:
+        parsed_project_keys = [k.strip() for k in project_keys.split(",") if k.strip()]
+    
+    # Create request object
+    request = MonthlyReportRequest(
+        year=year,
+        month=month,
+        project_keys=parsed_project_keys,
+        group_by_projects=group_by_projects,
+        include_raw_data=include_raw_data
+    )
+    
+    return await _generate_report(request, lang, format)
+
+
+@router.post("/monthly")
+async def generate_monthly_report_post(
+    request: MonthlyReportRequest,
+    lang: str = "ru",
+    format: str = Query("html", description="Response format: html, xlsx or json")
+):
+    """
+    Generate monthly Jira report (POST endpoint).
+    
+    Args:
+        request: Monthly report request parameters
+        lang: Language for report (en, ru)
+        format: Response format (html, xlsx or json)
+    
+    Returns:
+        HTMLResponse, StreamingResponse with XLSX file, or JSONResponse with report data
+    """
+    return await _generate_report(request, lang, format)
+
+
+@router.get("/custom")
+async def generate_custom_report_get(
+    start_date: date = Query(..., description="Start date (YYYY-MM-DD)"),
+    end_date: date = Query(..., description="End date (YYYY-MM-DD)"),
+    project_keys: Optional[str] = None,
+    group_by_projects: bool = True,
+    include_raw_data: bool = True,
+    lang: str = Query("ru", description="Language for report (en, ru)"),
+    format: str = Query("html", description="Response format: html, xlsx or json")
+):
+    """
+    Generate custom date range Jira report (GET endpoint).
+    
+    Args:
+        start_date: Report start date (YYYY-MM-DD)
+        end_date: Report end date (YYYY-MM-DD)
+        project_keys: Comma-separated project keys (e.g., "PROJ1,PROJ2")
+        group_by_projects: Whether to group results by projects
+        include_raw_data: Whether to include raw data sheets
+        lang: Language for report (en, ru)
+        format: Response format (html, xlsx or json)
+    
+    Returns:
+        HTMLResponse, StreamingResponse with XLSX file, or JSONResponse with report data
+    """
+    # Parse project_keys from comma-separated string to list
+    parsed_project_keys = None
+    if project_keys:
+        parsed_project_keys = [k.strip() for k in project_keys.split(",") if k.strip()]
+    
+    # Create request object
+    request = CustomReportRequest(
+        start_date=start_date,
+        end_date=end_date,
+        project_keys=parsed_project_keys,
+        group_by_projects=group_by_projects,
+        include_raw_data=include_raw_data
+    )
+    
+    return await _generate_custom_report(request, lang, format)
+
+
+@router.post("/custom")
+async def generate_custom_report_post(
+    request: CustomReportRequest,
+    lang: str = "ru",
+    format: str = Query("html", description="Response format: html, xlsx or json")
+):
+    """
+    Generate custom date range Jira report (POST endpoint).
+    
+    Args:
+        request: Custom report request parameters
+        lang: Language for report (en, ru)
+        format: Response format (html, xlsx or json)
+    
+    Returns:
+        HTMLResponse, StreamingResponse with XLSX file, or JSONResponse with report data
+    """
+    return await _generate_custom_report(request, lang, format)
+
+
+async def _generate_report(request: MonthlyReportRequest, lang: str = "ru", format: str = "html"):
+    """Common monthly report generation logic."""
+    try:
+        logger.info(
+            f"Generating monthly report for {request.year}-{request.month:02d}, "
+            f"projects: {request.project_keys or 'default'}, "
+            f"group_by_projects: {request.group_by_projects}, "
+            f"include_raw_data: {request.include_raw_data}, "
+            f"lang: {lang}, format: {format}"
+        )
+        
+        # Initialize services
+        async with JiraClient() as jira_client:
+            report_builder = ReportBuilder(jira_client)
+            
+            # Build report
+            report = await report_builder.build_report(request)
+            
+            # Return based on format
+            format_lower = format.lower()
+            if format_lower == "json":
+                return _json_response(report)
+            elif format_lower == "html":
+                html_exporter = HtmlExporter(lang)
+                html_content = html_exporter.generate(report)
+                return HTMLResponse(content=html_content)
+            else:
+                xlsx_exporter = XlsxExporter(lang)
+                xlsx_data = xlsx_exporter.generate(report)
+                
+                filename = f"jira_report_{request.year}_{request.month:02d}.xlsx"
+                
+                return StreamingResponse(
+                    io.BytesIO(xlsx_data.read()),
+                    media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    headers={
+                        "Content-Disposition": f"attachment; filename={filename}",
+                        "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                    }
+                )
+                
+    except Exception as e:
+        logger.error(f"Failed to generate report: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to generate report: {str(e)}")
+
+
+async def _generate_custom_report(request: CustomReportRequest, lang: str = "ru", format: str = "html"):
+    """Common custom report generation logic."""
+    try:
+        logger.info(
+            f"Generating custom report for {request.start_date} to {request.end_date}, "
+            f"projects: {request.project_keys or 'default'}, "
+            f"group_by_projects: {request.group_by_projects}, "
+            f"include_raw_data: {request.include_raw_data}, "
+            f"lang: {lang}, format: {format}"
+        )
+        
+        # Initialize services
+        async with JiraClient() as jira_client:
+            report_builder = ReportBuilder(jira_client)
+            
+            # Build custom report
+            report = await report_builder.build_custom_report(request)
+            
+            # Return based on format
+            format_lower = format.lower()
+            if format_lower == "json":
+                return _json_response(report)
+            elif format_lower == "html":
+                html_exporter = HtmlExporter(lang)
+                html_content = html_exporter.generate(report)
+                return HTMLResponse(content=html_content)
+            else:
+                xlsx_exporter = XlsxExporter(lang)
+                xlsx_data = xlsx_exporter.generate(report)
+                
+                filename = f"jira_report_{request.start_date}_{request.end_date}.xlsx"
+                
+                return StreamingResponse(
+                    io.BytesIO(xlsx_data.read()),
+                    media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    headers={
+                        "Content-Disposition": f"attachment; filename={filename}",
+                        "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                    }
+                )
+                
+    except Exception as e:
+        logger.error(f"Failed to generate custom report: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to generate report: {str(e)}")
+
+
+def _json_response(report: "ReportData"):
+    """Convert report to JSON response."""
+    from datetime import datetime as dt
+    
+    def serialize_datetime(obj):
+        """Serialize datetime objects to ISO format."""
+        if isinstance(obj, dt):
+            return obj.isoformat()
+        raise TypeError(f"Object of type {type(obj)} is not JSON serializable")
+    
+    # Convert report to dict and handle serialization
+    report_dict = report.model_dump()
+    
+    # Handle datetime serialization
+    def process_dict(d):
+        for key, value in d.items():
+            if isinstance(value, dt):
+                d[key] = value.isoformat()
+            elif isinstance(value, list):
+                for item in value:
+                    if isinstance(item, dict):
+                        process_dict(item)
+        return d
+    
+    report_dict = process_dict(report_dict)
+    
+    return JSONResponse(content=report_dict)
+
+
+@router.get("/health")
+async def health_check():
+    """Health check endpoint."""
+    return {"status": "healthy", "service": "jira-report"}

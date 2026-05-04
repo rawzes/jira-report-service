@@ -1,0 +1,23 @@
+version: '3.8'
+
+services:
+  jira-report:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      - JIRA_BASE_URL=${JIRA_BASE_URL}
+      - JIRA_EMAIL=${JIRA_EMAIL}
+      - JIRA_API_TOKEN=${JIRA_API_TOKEN}
+      - JIRA_PROJECT_KEYS=${JIRA_PROJECT_KEYS:-MB,MAX,IB}
+      - JIRA_DONE_STATUSES=${JIRA_DONE_STATUSES:-Done,Closed,Resolved}
+      - TIMEZONE=${TIMEZONE:-Europe/Minsk}
+    volumes:
+      - ./app:/app/app
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/reports/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s

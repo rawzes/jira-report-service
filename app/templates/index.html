@@ -1,0 +1,711 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Генератор отчетов Jira</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+
+        .container {
+            background: white;
+            border-radius: 16px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            padding: 40px;
+            max-width: 600px;
+            width: 100%;
+        }
+
+        h1 {
+            color: #333;
+            margin-bottom: 10px;
+            font-size: 28px;
+        }
+
+        .subtitle {
+            color: #666;
+            margin-bottom: 30px;
+            font-size: 14px;
+        }
+
+        .progress-container {
+            display: none;
+            margin-top: 20px;
+            padding: 20px;
+            background: #f8f9fa;
+            border-radius: 8px;
+            border: 2px solid #e0e0e0;
+        }
+
+        .progress-container.active {
+            display: block;
+        }
+
+        .progress-step {
+            display: flex;
+            align-items: center;
+            margin-bottom: 12px;
+            font-size: 14px;
+            color: #666;
+        }
+
+        .progress-step.active {
+            color: #667eea;
+            font-weight: 600;
+        }
+
+        .progress-step.completed {
+            color: #3c3;
+        }
+
+        .progress-icon {
+            width: 24px;
+            height: 24px;
+            margin-right: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 50%;
+            background: #e0e0e0;
+            color: white;
+            font-size: 12px;
+            flex-shrink: 0;
+        }
+
+        .progress-step.active .progress-icon {
+            background: #667eea;
+            animation: pulse 1.5s infinite;
+        }
+
+        .progress-step.completed .progress-icon {
+            background: #3c3;
+        }
+
+        @keyframes pulse {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.1); }
+        }
+
+        .progress-bar-container {
+            width: 100%;
+            height: 6px;
+            background: #e0e0e0;
+            border-radius: 3px;
+            margin-top: 15px;
+            overflow: hidden;
+        }
+
+        .progress-bar {
+            height: 100%;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            width: 0%;
+            transition: width 0.3s ease;
+            border-radius: 3px;
+        }
+
+        .progress-status {
+            margin-top: 10px;
+            font-size: 12px;
+            color: #999;
+            text-align: center;
+        }
+
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 8px;
+            color: #555;
+            font-weight: 500;
+            font-size: 14px;
+        }
+
+        input[type="date"],
+        input[type="text"],
+        select {
+            width: 100%;
+            padding: 12px 16px;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            font-size: 14px;
+            transition: border-color 0.3s;
+        }
+
+        input[type="date"]:focus,
+        input[type="text"]:focus,
+        select:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        .date-range {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 15px;
+        }
+
+        .checkbox-group {
+            display: flex;
+            gap: 20px;
+            margin-top: 10px;
+        }
+
+        .checkbox-group label {
+            display: flex;
+            align-items: center;
+            cursor: pointer;
+            font-weight: normal;
+        }
+
+        .checkbox-group input[type="checkbox"] {
+            margin-right: 8px;
+            width: 18px;
+            height: 18px;
+            cursor: pointer;
+        }
+
+        .button-group {
+            display: flex;
+            gap: 15px;
+            margin-top: 30px;
+        }
+
+        button {
+            flex: 1;
+            padding: 14px 24px;
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 20px rgba(102, 126, 234, 0.4);
+        }
+
+        .btn-secondary {
+            background: #f5f5f5;
+            color: #333;
+            border: 2px solid #e0e0e0;
+        }
+
+        .btn-secondary:hover {
+            background: #e0e0e0;
+        }
+
+        .loading {
+            display: none;
+            text-align: center;
+            margin-top: 20px;
+            color: #667eea;
+        }
+
+        .loading.active {
+            display: block;
+        }
+
+        .spinner {
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #667eea;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 10px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .alert {
+            padding: 12px 16px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            display: none;
+        }
+
+        .alert.error {
+            background: #fee;
+            color: #c33;
+            border: 1px solid #fcc;
+        }
+
+        .alert.success {
+            background: #efe;
+            color: #3c3;
+            border: 1px solid #cfc;
+        }
+
+        .alert.active {
+            display: block;
+        }
+
+        .quick-actions {
+            margin-top: 30px;
+            padding-top: 30px;
+            border-top: 2px solid #f0f0f0;
+        }
+
+        .quick-actions h3 {
+            color: #555;
+            margin-bottom: 15px;
+            font-size: 16px;
+        }
+
+        .quick-buttons {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 10px;
+        }
+
+        .quick-btn {
+            padding: 10px;
+            background: #f9f9f9;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 13px;
+            transition: all 0.3s;
+        }
+
+        .quick-btn:hover {
+            background: #667eea;
+            color: white;
+            border-color: #667eea;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🎯 Генератор отчетов Jira</h1>
+        <p class="subtitle">Создание отчетов за произвольный период в формате HTML или XLSX</p>
+        
+        <div class="alert error" id="errorAlert"></div>
+        <div class="alert success" id="successAlert"></div>
+        
+        <form id="reportForm">
+            <div class="form-group">
+                <label for="projectKeys">Ключи проектов (через запятую)</label>
+                <input type="text" id="projectKeys" value="MAX,MB,IB" placeholder="Например: PROJ1, PROJ2, PROJ3" />
+            </div>
+            
+            <div class="form-group">
+                <label>Период отчета</label>
+                <div class="date-range">
+                    <div>
+                        <label for="startDate" style="font-size: 12px;">Дата начала</label>
+                        <input type="date" id="startDate" required />
+                    </div>
+                    <div>
+                        <label for="endDate" style="font-size: 12px;">Дата окончания</label>
+                        <input type="date" id="endDate" required />
+                    </div>
+                </div>
+            </div>
+            
+            <div class="form-group">
+                <label>Параметры</label>
+                <div class="checkbox-group">
+                    <label>
+                        <input type="checkbox" id="groupByProjects" checked />
+                        Группировать по проектам
+                    </label>
+                    <label>
+                        <input type="checkbox" id="includeRawData" checked />
+                        Включить исходные данные
+                    </label>
+                </div>
+            </div>
+            
+            <div class="form-group">
+                <label>Формат отчета</label>
+                <div class="checkbox-group">
+                    <label>
+                        <input type="radio" name="format" value="html" checked />
+                        HTML (по умолчанию)
+                    </label>
+                    <label>
+                        <input type="radio" name="format" value="xlsx" />
+                        XLSX
+                    </label>
+                </div>
+            </div>
+            
+            <div class="button-group">
+                <button type="submit" class="btn-primary" id="generateBtn">
+                    📊 Сформировать отчет
+                </button>
+                <button type="button" class="btn-secondary" id="resetBtn">
+                    🔄 Сбросить
+                </button>
+            </div>
+        </form>
+
+        <div class="loading" id="loading">
+            <div class="spinner"></div>
+            <p>Формирование отчета... Пожалуйста, подождите</p>
+        </div>
+
+        <div class="progress-container" id="progressContainer">
+            <div class="progress-step" id="step1">
+                <div class="progress-icon">1</div>
+                <span>Подключение к Jira...</span>
+            </div>
+            <div class="progress-step" id="step2">
+                <div class="progress-icon">2</div>
+                <span>Поиск задач за указанный период...</span>
+            </div>
+            <div class="progress-step" id="step3">
+                <div class="progress-icon">3</div>
+                <span>Сбор данных о работе (worklogs)...</span>
+            </div>
+            <div class="progress-step" id="step4">
+                <div class="progress-icon">4</div>
+                <span>Агрегация метрик сотрудников...</span>
+            </div>
+            <div class="progress-step" id="step5">
+                <div class="progress-icon">5</div>
+                <span>Агрегация метрик проектов...</span>
+            </div>
+            <div class="progress-step" id="step6">
+                <div class="progress-icon">6</div>
+                <span>Формирование отчета...</span>
+            </div>
+            <div class="progress-bar-container">
+                <div class="progress-bar" id="progressBar"></div>
+            </div>
+            <div class="progress-status" id="progressStatus">Подготовка...</div>
+        </div>
+
+        <div class="quick-actions">
+            <h3>⚡ Быстрый выбор периода</h3>
+            <div class="quick-buttons">
+                <button type="button" class="quick-btn" onclick="setCurrentMonth()">
+                    Текущий месяц
+                </button>
+                <button type="button" class="quick-btn" onclick="setPreviousMonth()">
+                    Прошлый месяц
+                </button>
+                <button type="button" class="quick-btn" onclick="setLast30Days()">
+                    Последние 30 дней
+                </button>
+                <button type="button" class="quick-btn" onclick="setLast7Days()">
+                    Последние 7 дней
+                </button>
+                <button type="button" class="quick-btn" onclick="setCurrentYear()">
+                    Текущий год
+                </button>
+                <button type="button" class="quick-btn" onclick="setQuarter()">
+                    Текущий квартал
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Progress timeout tracking - must be global
+        let progressTimeouts = [];
+        
+        // Set default dates (current month)
+        window.onload = function() {
+            setCurrentMonth();
+        };
+
+        // Quick action functions
+        function setCurrentMonth() {
+            const now = new Date();
+            const firstDay = new Date(now.getFullYear(), now.getMonth(), 1);
+            const lastDay = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+            
+            document.getElementById('startDate').value = formatDate(firstDay);
+            document.getElementById('endDate').value = formatDate(lastDay);
+        }
+
+        function setPreviousMonth() {
+            const now = new Date();
+            const firstDay = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+            const lastDay = new Date(now.getFullYear(), now.getMonth(), 0);
+            
+            document.getElementById('startDate').value = formatDate(firstDay);
+            document.getElementById('endDate').value = formatDate(lastDay);
+        }
+
+        function setLast30Days() {
+            const end = new Date();
+            const start = new Date();
+            start.setDate(start.getDate() - 30);
+            
+            document.getElementById('startDate').value = formatDate(start);
+            document.getElementById('endDate').value = formatDate(end);
+        }
+
+        function setLast7Days() {
+            const end = new Date();
+            const start = new Date();
+            start.setDate(start.getDate() - 7);
+            
+            document.getElementById('startDate').value = formatDate(start);
+            document.getElementById('endDate').value = formatDate(end);
+        }
+
+        function setCurrentYear() {
+            const now = new Date();
+            const firstDay = new Date(now.getFullYear(), 0, 1);
+            const lastDay = new Date(now.getFullYear(), 11, 31);
+            
+            document.getElementById('startDate').value = formatDate(firstDay);
+            document.getElementById('endDate').value = formatDate(lastDay);
+        }
+
+        function setQuarter() {
+            const now = new Date();
+            const quarter = Math.floor(now.getMonth() / 3);
+            const firstDay = new Date(now.getFullYear(), quarter * 3, 1);
+            const lastDay = new Date(now.getFullYear(), quarter * 3 + 3, 0);
+            
+            document.getElementById('startDate').value = formatDate(firstDay);
+            document.getElementById('endDate').value = formatDate(lastDay);
+        }
+
+        function formatDate(date) {
+            const year = date.getFullYear();
+            const month = String(date.getMonth() + 1).padStart(2, '0');
+            const day = String(date.getDate()).padStart(2, '0');
+            return `${year}-${month}-${day}`;
+        }
+
+        // Form submission
+        document.getElementById('reportForm').addEventListener('submit', async function(e) {
+            e.preventDefault();
+            
+            const startDate = document.getElementById('startDate').value;
+            const endDate = document.getElementById('endDate').value;
+            const projectKeys = document.getElementById('projectKeys').value;
+            const groupByProjects = document.getElementById('groupByProjects').checked;
+            const includeRawData = document.getElementById('includeRawData').checked;
+            const format = document.querySelector('input[name="format"]:checked')?.value || 'html';
+            
+            // Validate dates
+            if (new Date(startDate) > new Date(endDate)) {
+                showError('Дата начала должна быть раньше даты окончания');
+                return;
+            }
+            
+            // Show loading and progress
+            document.getElementById('loading').classList.add('active');
+            document.getElementById('progressContainer').classList.add('active');
+            document.getElementById('generateBtn').disabled = true;
+            hideAlerts();
+            
+            // Reset progress
+            resetProgress();
+            clearProgressTimeouts();
+            
+            // Simulate progress (since we can't get real progress from a single HTTP request)
+            simulateProgress();
+            
+            try {
+                // Build query parameters
+                const params = new URLSearchParams({
+                    start_date: startDate,
+                    end_date: endDate,
+                    group_by_projects: groupByProjects,
+                    include_raw_data: includeRawData,
+                    format: format
+                });
+                
+                if (projectKeys) {
+                    params.append('project_keys', projectKeys);
+                }
+                
+                // Make request
+                const response = await fetch(`/reports/custom?${params.toString()}`, {
+                    method: 'GET'
+                });
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                
+                // Complete progress
+                completeProgress();
+                
+                // Handle response based on format
+                const contentType = response.headers.get('Content-Type') || '';
+                
+                if (format === 'html' || contentType.includes('text/html')) {
+                    // For HTML format, open in new tab
+                    const html = await response.text();
+                    const newTab = window.open();
+                    
+                    // Check if popup was blocked
+                    if (!newTab) {
+                        showError('Браузер заблокировал всплывающее окно. Разрешите всплывающие окна для этого сайта и попробуйте снова.');
+                        clearProgressTimeouts();
+                        return;
+                    }
+                    
+                    newTab.document.write(html);
+                    newTab.document.close();
+                    showSuccess('Отчет успешно сформирован в формате HTML!');
+                } else {
+                    // For XLSX format, download file
+                    const blob = await response.blob();
+                    const url = window.URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    
+                    // Get filename from response headers or generate one
+                    const contentDisposition = response.headers.get('Content-Disposition');
+                    let filename = `jira_report_${startDate}_${endDate}.xlsx`;
+                    if (contentDisposition) {
+                        const match = contentDisposition.match(/filename=(.+)/);
+                        if (match) filename = match[1].replace(/"/g, '');
+                    }
+                    
+                    a.download = filename;
+                    document.body.appendChild(a);
+                    a.click();
+                    window.URL.revokeObjectURL(url);
+                    document.body.removeChild(a);
+                    showSuccess('Отчет успешно сформирован в формате XLSX!');
+                }
+            } catch (error) {
+                showError('Ошибка при формировании отчета: ' + error.message);
+                resetProgress();
+                clearProgressTimeouts();
+            } finally {
+                document.getElementById('loading').classList.remove('active');
+                setTimeout(() => {
+                    document.getElementById('progressContainer').classList.remove('active');
+                }, 1000);
+                document.getElementById('generateBtn').disabled = false;
+            }
+        });
+
+        // Progress control functions
+        function resetProgress() {
+            for (let i = 1; i <= 6; i++) {
+                const step = document.getElementById(`step${i}`);
+                step.classList.remove('active', 'completed');
+            }
+            document.getElementById('progressBar').style.width = '0%';
+            document.getElementById('progressStatus').textContent = 'Подготовка...';
+        }
+
+        function updateProgress(stepNumber, statusText) {
+            // Mark previous steps as completed
+            for (let i = 1; i < stepNumber; i++) {
+                const step = document.getElementById(`step${i}`);
+                step.classList.remove('active');
+                step.classList.add('completed');
+            }
+            
+            // Mark current step as active
+            const currentStep = document.getElementById(`step${stepNumber}`);
+            currentStep.classList.add('active');
+            
+            // Update progress bar
+            const progress = (stepNumber / 6) * 100;
+            document.getElementById('progressBar').style.width = `${progress}%`;
+            
+            // Update status text
+            if (statusText) {
+                document.getElementById('progressStatus').textContent = statusText;
+            }
+        }
+
+        function completeProgress() {
+            for (let i = 1; i <= 6; i++) {
+                const step = document.getElementById(`step${i}`);
+                step.classList.remove('active');
+                step.classList.add('completed');
+            }
+            document.getElementById('progressBar').style.width = '100%';
+            document.getElementById('progressStatus').textContent = 'Готово!';
+        }
+
+        function simulateProgress() {
+            // Simulate progress since we can't get real-time updates from backend
+            // In a real implementation, you would use WebSocket or SSE for real progress
+            const steps = [
+                { step: 1, delay: 500, text: 'Подключение к Jira...' },
+                { step: 2, delay: 1500, text: 'Поиск задач...' },
+                { step: 3, delay: 3000, text: 'Сбор данных о работе...' },
+                { step: 4, delay: 4500, text: 'Агрегация метрик сотрудников...' },
+                { step: 5, delay: 6000, text: 'Агрегация метрик проектов...' },
+                { step: 6, delay: 7500, text: 'Формирование файла...' }
+            ];
+
+            // Clear any existing timeouts
+            clearProgressTimeouts();
+            
+            steps.forEach(({ step, delay, text }) => {
+                const timeoutId = setTimeout(() => updateProgress(step, text), delay);
+                progressTimeouts.push(timeoutId);
+            });
+        }
+        
+        function clearProgressTimeouts() {
+            progressTimeouts.forEach(id => clearTimeout(id));
+            progressTimeouts = [];
+        }
+
+        // Reset button
+        document.getElementById('resetBtn').addEventListener('click', function() {
+            document.getElementById('reportForm').reset();
+            setCurrentMonth();
+            hideAlerts();
+            resetProgress();
+            clearProgressTimeouts();
+            document.getElementById('progressContainer').classList.remove('active');
+        });
+
+        // Alert functions
+        function showError(message) {
+            const alert = document.getElementById('errorAlert');
+            alert.textContent = message;
+            alert.classList.add('active');
+            setTimeout(() => alert.classList.remove('active'), 5000);
+        }
+
+        function showSuccess(message) {
+            const alert = document.getElementById('successAlert');
+            alert.textContent = message;
+            alert.classList.add('active');
+            setTimeout(() => alert.classList.remove('active'), 3000);
+        }
+
+        function hideAlerts() {
+            document.getElementById('errorAlert').classList.remove('active');
+            document.getElementById('successAlert').classList.remove('active');
+        }
+    </script>
+</body>
+</html>
