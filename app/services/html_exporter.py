@@ -28,20 +28,28 @@ class HtmlExporter:
         
     def generate(self, report: ReportData) -> str:
         """Generate HTML report with all data and embedded charts."""
-        # Build JIRA filter URLs for summary links
-        project_keys = ','.join([p.project_key for p in report.project_metrics]) if report.project_metrics else ''
-        start_str = report.start_date.strftime('%Y-%m-%d')
-        end_str = report.end_date.strftime('%Y-%m-%d')
-        
-        # Build JQL filter URLs
-        created_jql = f"project in ({project_keys}) AND created >= '{start_str}' AND created < '{end_str}'"
-        closed_jql = f"project in ({project_keys}) AND status in ({','.join(settings.done_statuses_list)}) AND status changed to Done during ('{start_str}', '{end_str}')"
-        overdue_jql = f"project in ({project_keys}) AND duedate < now() AND status not in ({','.join(settings.done_statuses_list)})"
-        reopened_jql = f"project in ({project_keys}) AND status changed from Done to * during ('{start_str}', '{end_str}')"
-        blocked_jql = f"project in ({project_keys}) AND status in ({','.join(settings.blocked_statuses_list)})"
-        
-        html = f"""
-<!DOCTYPE html>
+        logger.info("Starting HTML report generation")
+        try:
+            # Build JIRA filter URLs for summary links
+            logger.debug("Building project keys and date strings")
+            project_keys = ','.join([p.project_key for p in report.project_metrics]) if report.project_metrics else ''
+            start_str = report.start_date.strftime('%Y-%m-%d')
+            end_str = report.end_date.strftime('%Y-%m-%d')
+            
+            # Build JQL filter URLs
+            logger.debug("Building JQL filter URLs")
+            created_jql = f"project in ({project_keys}) AND created >= '{start_str}' AND created < '{end_str}'"
+            closed_jql = f"project in ({project_keys}) AND status in ({','.join(settings.done_statuses_list)}) AND status changed to Done during ('{start_str}', '{end_str}')"
+            overdue_jql = f"project in ({project_keys}) AND duedate < now() AND status not in ({','.join(settings.done_statuses_list)})"
+            reopened_jql = f"project in ({project_keys}) AND status changed from Done to * during ('{start_str}', '{end_str}')"
+            blocked_jql = f"project in ({project_keys}) AND status in ({','.join(settings.blocked_statuses_list)})"
+            
+            logger.debug("Building HTML structure with logging")
+            html_parts = []
+            
+            # HTML header
+            logger.debug("Adding HTML header")
+            html_parts.append(f"""<!DOCTYPE html>
 <html lang="{self.lang}">
 <head>
     <meta charset="UTF-8">
@@ -49,16 +57,25 @@ class HtmlExporter:
     <title>Jira Report {report.start_date.strftime('%Y-%m-%d')} - {report.end_date.strftime('%Y-%m-%d')}</title>
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
     <style>
-        {self._get_css()}
-    </style>
+""")
+            
+            # CSS
+            logger.debug("Generating CSS")
+            html_parts.append(self._get_css())
+            html_parts.append("""    </style>
 </head>
 <body>
     <div class="container">
         <h1>📊 Jira Report</h1>
-        <p class="subtitle">{self._["report_period"]}: {report.start_date.strftime('%Y-%m-%d')} - {report.end_date.strftime('%Y-%m-%d')}</p>
-        
-        {self._generate_summary_section(report, created_jql, closed_jql, overdue_jql, reopened_jql, blocked_jql)}
-        
+        <p class="subtitle">""" + self._["report_period"] + f": {report.start_date.strftime('%Y-%m-%d')} - {report.end_date.strftime('%Y-%m-%d')}</p>")
+            
+            # Summary section
+            logger.debug("Generating summary section")
+            html_parts.append(self._generate_summary_section(report, created_jql, closed_jql, overdue_jql, reopened_jql, blocked_jql))
+            
+            # Tab navigation
+            logger.debug("Adding tab navigation")
+            html_parts.append(f"""
         <div class="tab-navigation">
             <button class="tab-button active" data-tab="by-employee">{self._["by_employee"]}</button>
             <button class="tab-button" data-tab="by-project">{self._["by_project"]}</button>
@@ -71,81 +88,113 @@ class HtmlExporter:
             <button class="tab-button" data-tab="charts">{self._["charts"]}</button>
             <button class="tab-button" data-tab="raw-data">{self._["raw_issues"]}</button>
         </div>
-        
-        <div id="by-employee" class="tab-content active">
-            {self._generate_by_employee_section(report)}
-        </div>
-        <div id="by-project" class="tab-content">
-            {self._generate_by_project_section(report)}
-        </div>
-        <div id="weekly-data" class="tab-content">
-            {self._generate_weekly_throughput_section(report)}
-        </div>
-        <div id="cycle-time" class="tab-content">
-            {self._generate_cycle_time_section(report)}
-        </div>
-        <div id="aging-wip" class="tab-content">
-            {self._generate_aging_wip_section(report)}
-        </div>
-        <div id="overdue" class="tab-content">
-            {self._generate_overdue_section(report)}
-        </div>
-        <div id="reopened" class="tab-content">
-            {self._generate_reopened_section(report)}
-        </div>
-        <div id="risks" class="tab-content">
-            {self._generate_risks_section(report)}
-        </div>
-        <div id="charts" class="tab-content">
-            {self._generate_charts_section(report)}
-        </div>
-        <div id="raw-data" class="tab-content">
-            {self._generate_raw_data_sections(report) if report.include_raw_data else ''}
-        </div>
+""")
+            
+            # Tab contents with individual logging
+            logger.debug("Generating by-employee section")
+            html_parts.append("""        <div id="by-employee" class="tab-content active">""")
+            html_parts.append(self._generate_by_employee_section(report))
+            html_parts.append("""        </div>""")
+            
+            logger.debug("Generating by-project section")
+            html_parts.append("""        <div id="by-project" class="tab-content">""")
+            html_parts.append(self._generate_by_project_section(report))
+            html_parts.append("""        </div>""")
+            
+            logger.debug("Generating weekly-throughput section")
+            html_parts.append("""        <div id="weekly-data" class="tab-content">""")
+            html_parts.append(self._generate_weekly_throughput_section(report))
+            html_parts.append("""        </div>""")
+            
+            logger.debug("Generating cycle-time section")
+            html_parts.append("""        <div id="cycle-time" class="tab-content">""")
+            html_parts.append(self._generate_cycle_time_section(report))
+            html_parts.append("""        </div>""")
+            
+            logger.debug("Generating aging-wip section")
+            html_parts.append("""        <div id="aging-wip" class="tab-content">""")
+            html_parts.append(self._generate_aging_wip_section(report))
+            html_parts.append("""        </div>""")
+            
+            logger.debug("Generating overdue section")
+            html_parts.append("""        <div id="overdue" class="tab-content">""")
+            html_parts.append(self._generate_overdue_section(report))
+            html_parts.append("""        </div>""")
+            
+            logger.debug("Generating reopened section")
+            html_parts.append("""        <div id="reopened" class="tab-content">""")
+            html_parts.append(self._generate_reopened_section(report))
+            html_parts.append("""        </div>""")
+            
+            logger.debug("Generating risks section")
+            html_parts.append("""        <div id="risks" class="tab-content">""")
+            html_parts.append(self._generate_risks_section(report))
+            html_parts.append("""        </div>""")
+            
+            logger.debug("Generating charts section")
+            html_parts.append("""        <div id="charts" class="tab-content">""")
+            html_parts.append(self._generate_charts_section(report))
+            html_parts.append("""        </div>""")
+            
+            logger.debug("Generating raw-data section")
+            html_parts.append("""        <div id="raw-data" class="tab-content">""")
+            if report.include_raw_data:
+                html_parts.append(self._generate_raw_data_sections(report))
+            html_parts.append("""        </div>""")
+            
+            # JavaScript
+            logger.debug("Adding JavaScript")
+            html_parts.append("""
     </div>
     
     <script>
         // Tab navigation with smooth transitions
-        document.querySelectorAll('.tab-button').forEach(function(button) {{
-            button.addEventListener('click', function() {{
+        document.querySelectorAll('.tab-button').forEach(function(button) {
+            button.addEventListener('click', function() {
                 // Remove active class from all buttons and contents
-                document.querySelectorAll('.tab-button').forEach(function(b) {{ b.classList.remove('active'); }});
-                document.querySelectorAll('.tab-content').forEach(function(c) {{ 
-                    c.classList.remove('active'); 
+                document.querySelectorAll('.tab-button').forEach(function(b) { b.classList.remove('active'); });
+                document.querySelectorAll('.tab-content').forEach(function(c) {
+                    c.classList.remove('active');
                     c.style.opacity = '0';
-                }});
+                });
                 
                 // Add active class to clicked button and corresponding content
                 button.classList.add('active');
                 const tabId = button.getAttribute('data-tab');
                 const targetContent = document.getElementById(tabId);
                 targetContent.classList.add('active');
-                setTimeout(function() {{
+                setTimeout(function() {
                     targetContent.style.opacity = '1';
-                }}, 50);
-            }});
-        }});
+                }, 50);
+            });
+        });
         
         // Summary navigation links
-        document.querySelectorAll('.summary-nav-link').forEach(function(link) {{
-            link.addEventListener('click', function(e) {{
+        document.querySelectorAll('.summary-nav-link').forEach(function(link) {
+            link.addEventListener('click', function(e) {
                 e.preventDefault();
                 const tabId = link.getAttribute('data-tab');
-                if (tabId) {{
+                if (tabId) {
                     // Find and click the corresponding tab button
-                    document.querySelectorAll('.tab-button').forEach(function(b) {{
-                        if (b.getAttribute('data-tab') === tabId) {{
+                    document.querySelectorAll('.tab-button').forEach(function(b) {
+                        if (b.getAttribute('data-tab') === tabId) {
                             b.click();
-                        }}
-                    }};
-                }}
-            }});
-        }});
+                        }
+                    });
+                }
+            });
+        });
     </script>
 </body>
 </html>
-"""
-        return html
+""")
+            
+            logger.info("HTML report generation completed successfully")
+            return ''.join(html_parts)
+            
+        except Exception as e:
+            logger.error(f"Error generating HTML report: {e}", exc_info=True)
+            raise
     
     def _get_css(self) -> str:
         """Return CSS styles for the HTML report."""
@@ -793,21 +842,28 @@ class HtmlExporter:
         if not report.risk_flags:
             return ""
         
-        html = f"<h2>{self._['risks']}</h2>"
+        logger.debug(f"Generating risks section with {len(report.risk_flags)} risk flags")
+        html_parts = []
+        html_parts.append(f"<h2>{self._['risks']}</h2>")
         
-        # Summary statistics
-        high_count = sum(1 for r in report.risk_flags if r.severity.lower() == 'high')
-        medium_count = sum(1 for r in report.risk_flags if r.severity.lower() == 'medium')
-        low_count = sum(1 for r in report.risk_flags if r.severity.lower() == 'low')
-        
-        # Risk type counts
+        # Summary statistics - single pass through risk_flags
+        logger.debug("Counting risk severity levels")
+        high_count = medium_count = low_count = 0
         risk_types = {}
         for risk in report.risk_flags:
+            severity = risk.severity.lower()
+            if severity == 'high':
+                high_count += 1
+            elif severity == 'medium':
+                medium_count += 1
+            else:
+                low_count += 1
+            
             risk_type = risk.risk_type
             risk_types[risk_type] = risk_types.get(risk_type, 0) + 1
         
-        html += '<div class="risk-stats">'
-        html += f'''
+        html_parts.append('<div class="risk-stats">')
+        html_parts.append(f'''
         <div class="risk-stat-card high">
             <div class="risk-stat-count">{high_count}</div>
             <div class="risk-stat-label">High Severity</div>
@@ -820,49 +876,52 @@ class HtmlExporter:
             <div class="risk-stat-count">{low_count}</div>
             <div class="risk-stat-label">Low Severity</div>
         </div>
-        '''
-        html += '</div>'
+        ''')
+        html_parts.append('</div>')
         
         # Add interactive donut chart for risk distribution
-        html += '<div class="risk-chart-container">'
-        html += '<canvas id="risk-severity-chart"></canvas>'
-        html += '</div>'
+        html_parts.append('<div class="risk-chart-container">')
+        html_parts.append('<canvas id="risk-severity-chart"></canvas>')
+        html_parts.append('</div>')
         
         # Risk type chart
         if len(risk_types) > 1:
-            html += '<div class="risk-chart-container">'
-            html += '<canvas id="risk-type-chart"></canvas>'
-            html += '</div>'
+            html_parts.append('<div class="risk-chart-container">')
+            html_parts.append('<canvas id="risk-type-chart"></canvas>')
+            html_parts.append('</div>')
         
         # Risk type summary table
         if risk_types:
-            html += f"<h3>Risk Types</h3>"
-            html += "<div class='table-responsive'><table><thead><tr>"
-            html += "<th>Risk Type</th><th>Count</th><th>Percentage</th>"
-            html += "</tr></thead><tbody>"
+            logger.debug("Generating risk type summary table")
+            html_parts.append(f"<h3>Risk Types</h3>")
+            html_parts.append("<div class='table-responsive'><table><thead><tr>")
+            html_parts.append("<th>Risk Type</th><th>Count</th><th>Percentage</th>")
+            html_parts.append("</tr></thead><tbody>")
             total_risks = len(report.risk_flags)
             for risk_type, count in sorted(risk_types.items(), key=lambda x: -x[1]):
                 percentage = (count / total_risks) * 100
-                html += f"<tr><td>{risk_type}</td><td>{count}</td><td>{percentage:.1f}%</td></tr>"
-            html += "</tbody></table></div>"
+                html_parts.append(f"<tr><td>{risk_type}</td><td>{count}</td><td>{percentage:.1f}%</td></tr>")
+            html_parts.append("</tbody></table></div>")
         
-        # Detailed risk list (collapsible)
-        html += f"<h3>Detailed Risk List (click to expand)</h3>"
-        for i, risk in enumerate(report.risk_flags):
+        # Detailed risk list (collapsible) - LIMIT to first 100 to avoid hangs
+        logger.debug("Generating detailed risk list")
+        html_parts.append(f"<h3>Detailed Risk List (showing first 100 of {len(report.risk_flags)})</h3>")
+        for i, risk in enumerate(report.risk_flags[:100]):  # LIMIT to 100 to prevent hangs
             severity_class = risk.severity.lower()
-            html += f'<div class="risk-card {severity_class}" onclick="this.classList.toggle(\'expanded\')">'
-            html += f'<div class="risk-type">{risk.risk_type} <span style="float:right;cursor:pointer;">+</span></div>'
-            html += f'<div class="risk-description">{risk.description}</div>'
-            html += f'<div class="risk-meta">'
+            html_parts.append(f'<div class="risk-card {severity_class}" onclick="this.classList.toggle(\'expanded\')">')
+            html_parts.append(f'<div class="risk-type">{risk.risk_type} <span style="float:right;cursor:pointer;">+</span></div>')
+            html_parts.append(f'<div class="risk-description">{risk.description}</div>')
+            html_parts.append(f'<div class="risk-meta">')
             if risk.project_key:
-                html += f"Project: <a href='{self.jira_base}/projects/{risk.project_key}' target='_blank'>{risk.project_key}</a> | "
+                html_parts.append(f"Project: <a href='{self.jira_base}/projects/{risk.project_key}' target='_blank'>{risk.project_key}</a> | ")
             if risk.employee_name:
-                html += f"Employee: {risk.employee_name} | "
-            html += f"Severity: {risk.severity}"
-            html += '</div></div>'
+                html_parts.append(f"Employee: {risk.employee_name} | ")
+            html_parts.append(f"Severity: {risk.severity}")
+            html_parts.append('</div></div>')
         
         # Add JavaScript for risk charts
-        html += f"""
+        logger.debug("Adding JavaScript for risk charts")
+        html_parts.append(f"""
         <script>
         // Risk Severity Donut Chart
         new Chart(document.getElementById('risk-severity-chart'), {{
@@ -887,12 +946,12 @@ class HtmlExporter:
                 }}
             }}
         }});
-        """
+        """)
         
         if len(risk_types) > 1:
             risk_type_labels = list(risk_types.keys())
             risk_type_counts = list(risk_types.values())
-            html += f"""
+            html_parts.append(f"""
         // Risk Type Bar Chart
         new Chart(document.getElementById('risk-type-chart'), {{
             type: 'bar',
@@ -919,11 +978,12 @@ class HtmlExporter:
                 }}
             }}
         }});
-        """
+        """)
         
-        html += "</script>"
+        html_parts.append("</script>")
         
-        return html
+        logger.debug("Risks section generation completed")
+        return ''.join(html_parts)
     
     def _generate_charts_section(self, report: ReportData) -> str:
         """Generate charts section with Chart.js interactive charts."""
