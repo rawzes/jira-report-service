@@ -1,6 +1,6 @@
 # Jira Report Service
 
-Production-ready service for generating Jira reports focused on **flow-analytics** rather than velocity and estimate-based planning. Built with FastAPI, httpx, pydantic, and openpyxl.
+Production-ready service for generating Jira reports focused on **flow-analytics** rather than velocity and estimate-based planning. Built with FastAPI, httpx, pydantic, and Jinja2 for HTML report generation.
 
 ## Flow-Analytics Focus
 
@@ -38,7 +38,7 @@ These metrics help identify bottlenecks, predict delivery dates, and improve pro
 - By Week: Weekly throughput analysis
 - By Issue Type: Bug / Task / Story / Support / Tech (if available)
 
-### XLSX Report Sheets
+### HTML Report Sections
 1. **Summary**: Key metrics overview with top-5 oldest issues
 2. **By Employee**: Per-employee metrics with WIP and cycle time
 3. **By Project**: Per-project flow metrics with aging buckets
@@ -47,21 +47,9 @@ These metrics help identify bottlenecks, predict delivery dates, and improve pro
 6. **Aging WIP**: All open tasks with age analysis
 7. **Overdue**: Past-due tasks with priority
 8. **Reopened**: Reopened tasks with dates and counts
-9. **Raw Issues**: Complete issue data export
-10. **Raw Worklogs**: Complete worklog data export
-11. **Raw Transitions**: All status transitions history
-13. **Charts**: Visual charts for key metrics
-
-### Visual Charts (in XLSX)
-- Column chart: Closed tasks by week and project
-- Line chart: Median cycle time by week
-- Bar chart: Worklog hours by employee
-- Bar chart: Aging WIP buckets (0-7, 8-14, 15-30, 30+ days)
-- Stacked bar: Status distribution by project
-- Bar chart: Reopened tasks by project
 
 ### Technical Features
-- **Multi-Format Output**: Returns XLSX or JSON based on `format` parameter
+- **Multi-Format Output**: Returns HTML or JSON based on `format` parameter
 - **Changelog Analysis**: Full history parsing for cycle time and reopened calculations
 - **Configurable Statuses**: Define start, done, and blocked statuses via environment
 - **Multi-Language**: Support for English and Russian report output
@@ -76,11 +64,13 @@ app/
 ├── main.py                    # FastAPI application entry point
 ├── api/
 │   ├── __init__.py
-│   └── report.py             # Report generation endpoints (XLSX + JSON)
+│   └── report.py             # Report generation endpoints (HTML + JSON)
 ├── services/
 │   ├── jira_client.py        # Jira API client with retry logic and changelog support
 │   ├── report_builder.py     # Flow metrics aggregation and calculations
-│   └── xlsx_exporter.py     # Excel file generation with charts
+│   └── html_exporter.py     # HTML file generation with Jinja2 templates
+├── templates/
+│   └── index.html           # Jinja2 HTML template for reports
 └── models/
     ├── __init__.py
     ├── config.py             # Pydantic settings from environment
@@ -230,9 +220,9 @@ Generate monthly report.
 
 **Query Parameters:**
 - `lang`: Language for report (en, ru) - default: ru
-- `format`: Response format (xlsx, json) - default: xlsx
+- `format`: Response format (html, htmldownload, json) - default: html
 
-**Response:** XLSX file download or JSON with report data
+**Response:** HTML page, HTML file download, or JSON with report data
 
 ### GET /reports/monthly
 
@@ -245,9 +235,9 @@ Generate monthly report via GET.
 - `group_by_projects`: Group by projects (default: true)
 - `include_raw_data`: Include raw data sheets (default: true)
 - `lang`: Language for report (en, ru) - default: ru
-- `format`: Response format (xlsx, json) - default: xlsx
+- `format`: Response format (html, htmldownload, json) - default: html
 
-**Response:** XLSX file download or JSON with report data
+**Response:** HTML page, HTML file download, or JSON with report data
 
 ### POST /reports/custom
 
@@ -266,9 +256,9 @@ Generate custom date range report.
 
 **Query Parameters:**
 - `lang`: Language for report (en, ru) - default: ru
-- `format`: Response format (xlsx, json) - default: xlsx
+- `format`: Response format (html, htmldownload, json) - default: html
 
-**Response:** XLSX file download or JSON with report data
+**Response:** HTML page, HTML file download, or JSON with report data
 
 ### GET /reports/health
 
@@ -284,17 +274,30 @@ Health check endpoint.
 
 ## Example Usage
 
-### Using curl (XLSX format)
+### Using curl (HTML format)
 
 ```bash
-curl -X POST "http://localhost:8000/reports/monthly?lang=ru&format=xlsx" \
+# View HTML report in browser
+curl -X POST "http://localhost:8000/reports/monthly?lang=ru&format=html" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "year": 2024,
+    "month": 1,
+    "project_keys": ["MB", "MAX", "IB"]
+  }'
+```
+
+### Using curl (HTML download)
+
+```bash
+curl -X POST "http://localhost:8000/reports/monthly?lang=ru&format=htmldownload" \
   -H "Content-Type: application/json" \
   -d '{
     "year": 2024,
     "month": 1,
     "project_keys": ["MB", "MAX", "IB"]
   }' \
-  -o "jira_report_2024_01.xlsx"
+  -o "jira_report_2024_01.html"
 ```
 
 ### Using curl (JSON format)
@@ -314,9 +317,9 @@ curl -X POST "http://localhost:8000/reports/monthly?lang=en&format=json" \
 ```python
 import requests
 
-# XLSX format
+# HTML format (view in browser)
 response = requests.post(
-    "http://localhost:8000/reports/monthly?format=xlsx",
+    "http://localhost:8000/reports/monthly?format=html",
     json={
         "year": 2024,
         "month": 1,
@@ -324,7 +327,17 @@ response = requests.post(
     }
 )
 
-with open("jira_report_2024_01.xlsx", "wb") as f:
+# HTML download
+response = requests.post(
+    "http://localhost:8000/reports/monthly?format=htmldownload",
+    json={
+        "year": 2024,
+        "month": 1,
+        "project_keys": ["MB", "MAX", "IB"]
+    }
+)
+
+with open("jira_report_2024_01.html", "wb") as f:
     f.write(response.content)
 
 # JSON format
@@ -342,64 +355,52 @@ print(f"Total worklog hours: {report_data['total_worklog_hours']}")
 print(f"Median cycle time: {report_data['median_cycle_time']}")
 ```
 
-## XLSX Report Structure
+## HTML Report Structure
 
-The generated XLSX file contains the following sheets:
+The generated HTML report contains the following sections:
 
-### 1. Summary
+### Summary
 - Report period information
 - Total worklog hours, created issues, closed issues
 - Throughput, median cycle time, P85 cycle time
 - Overdue, reopened, blocked task counts
 - Top 5 oldest open issues
 
-### 2. By Employee
+### By Employee
 - Employee Name, Account ID, Project Key
 - Worklog Hours, Created Tasks, Closed Tasks
 - Reopened Tasks, Active WIP
 - Avg/Median Cycle Time, Overdue Tasks
 
-### 3. By Project
+### By Project
 - Project Key, Worklog Hours, Created/Closed Tasks
 - Throughput, Median/P85 Cycle Time
 - WIP Count, Aging buckets (7/14/30+ days)
 - Reopened, Overdue, Blocked counts
 
-### 4. Weekly Throughput
+### Weekly Throughput
 - Week Start/End, Project Key
 - Closed Tasks Count, Created Tasks Count
 - Net Flow (Closed - Created)
 
-### 5. Cycle Time
+### Cycle Time
 - Issue Key, Project Key, Issue Type
 - Assignee, Reporter
 - Start Progress Date, Done Date
 - Cycle Time (Days/Hours), Reopened Flag
 
-### 6. Aging WIP
+### Aging WIP
 - Issue Key, Project Key, Status
 - Assignee, Created Date, Last Status Change
 - Aging Days, Blocked Flag, Due Date, Overdue Flag
 
-### 7. Overdue
+### Overdue
 - Issue Key, Project Key, Assignee
 - Status, Due Date, Days Overdue, Priority
 
-### 8. Reopened
+### Reopened
 - Issue Key, Project Key, Assignee
 - Done Date, Reopen Date, Reopen Count, Current Status
-
-### 9. Raw Issues (optional)
-- Complete issue data with all flow metrics
-
-### 10. Raw Worklogs (optional)
-- All worklog entries with details
-
-### 11. Raw Transitions (optional)
-- All status transitions with dates and authors
-
-### 13. Charts
-- Visual charts for key metrics
 
 ## Calculation Rules
 
@@ -447,7 +448,7 @@ The test suite covers:
 - Worklog aggregation per employee
 - Created/closed issues counting
 - Cycle time calculations
-- XLSX generation with all sheets
+- HTML export functionality
 - Pagination handling
 - Edge cases (deleted users, missing assignees)
 
@@ -456,10 +457,11 @@ The test suite covers:
 ### Project Structure Details
 
 - **`app/main.py`**: FastAPI application setup with CORS middleware
-- **`app/api/report.py`**: Endpoints for XLSX and JSON report generation
+- **`app/api/report.py`**: Endpoints for HTML and JSON report generation
 - **`app/services/jira_client.py`**: Async Jira API client with changelog support
 - **`app/services/report_builder.py`**: Flow metrics aggregation and calculations
-- **`app/services/xlsx_exporter.py`**: Generates formatted Excel with charts
+- **`app/services/html_exporter.py`**: Generates HTML reports using Jinja2 templates
+- **`app/templates/index.html`**: Jinja2 template for HTML report rendering
 - **`app/models/config.py`**: Pydantic Settings loading from `.env` file
 - **`app/models/schemas.py`**: All Pydantic models for requests/responses
 
@@ -473,7 +475,8 @@ The test suite covers:
 6. **Timezone Handling**: Uses `zoneinfo` for proper timezone conversion
 7. **Configurable Statuses**: All status lists configurable via environment
 8. **Multi-Language**: Support for English and Russian via `REPORT_LANG`
-9. **Dual Output**: Returns XLSX or JSON based on `format` parameter
+9. **Dual Output**: Returns HTML or JSON based on `format` parameter
+10. **HTML Templates**: Uses Jinja2 for flexible HTML report generation
 
 ## License
 

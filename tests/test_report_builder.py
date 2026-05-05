@@ -304,8 +304,8 @@ class TestProjectGrouping:
         assert max_metrics.employee_count == 1
 
 
-class TestXlsxGeneration:
-    """Tests for XLSX generation."""
+class TestHtmlExport:
+    """Tests for HTML export."""
     
     def test_generate_html(self, timezone):
         """Test HTML export functionality."""
