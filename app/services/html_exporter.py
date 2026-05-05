@@ -135,7 +135,6 @@ class HtmlExporter:
             html_parts.append(self._generate_reopened_section(report))
             html_parts.append("""        </div>""")
             
-            
             logger.debug("Generating charts section")
             html_parts.append("""        <div id="charts" class="tab-content">""")
             html_parts.append(self._generate_charts_section(report))
@@ -394,11 +393,13 @@ class HtmlExporter:
             width: 100% !important;
             height: 100% !important;
         }
+        .risk-stats {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
             gap: 15px;
             margin-bottom: 20px;
         }
+        .risk-stat-card {
             background: #f8f9fa;
             padding: 20px;
             border-radius: 8px;
@@ -407,23 +408,30 @@ class HtmlExporter:
             transition: transform 0.2s;
             cursor: pointer;
         }
+        .risk-stat-card:hover {
             transform: translateY(-2px);
             box-shadow: 0 4px 12px rgba(0,0,0,0.1);
         }
+        .risk-stat-card.high {
             border-left-color: #e74c3c;
         }
+        .risk-stat-card.medium {
             border-left-color: #f39c12;
         }
+        .risk-stat-card.low {
             border-left-color: #3498db;
         }
+        .risk-stat-count {
             font-size: 36px;
             font-weight: bold;
             color: #2c3e50;
         }
+        .risk-stat-label {
             color: #7f8c8d;
             font-size: 14px;
             margin-top: 5px;
         }
+        .risk-card {
             background: #fff;
             border: 1px solid #e0e0e0;
             border-radius: 8px;
@@ -431,20 +439,26 @@ class HtmlExporter:
             margin-bottom: 10px;
             border-left: 4px solid #f39c12;
         }
+        .risk-card.high {
             border-left-color: #e74c3c;
         }
+        .risk-card.medium {
             border-left-color: #f39c12;
         }
+        .risk-card.low {
             border-left-color: #3498db;
         }
+        .risk-type {
             font-weight: bold;
             color: #2c3e50;
             margin-bottom: 5px;
         }
+        .risk-description {
             color: #555;
             font-size: 14px;
             margin-bottom: 5px;
         }
+        .risk-meta {
             color: #7f8c8d;
             font-size: 12px;
         }
@@ -492,6 +506,8 @@ class HtmlExporter:
             text-decoration: none;
         }
         
+        /* Risk Chart Container */
+        .risk-chart-container {
             width: 100%;
             max-width: 500px;
             height: 300px;
@@ -843,3 +859,660 @@ class HtmlExporter:
         html += "</tbody></table></div>"
         return html
     
+    def _generate_charts_section(self, report: ReportData) -> str:
+        """Generate charts section with Chart.js interactive charts."""
+        html = f"<h2>{self._['charts']}</h2>"
+        
+        # Prepare data for Chart.js charts
+        chart_data = self._prepare_chart_data(report)
+        
+        # 1. Closed tasks by week - Chart.js
+        if chart_data.get('closed_by_week'):
+            html += f"<h3>{self._['closed_by_week']}</h3>"
+            html += f'<div class="chart-container"><canvas id="chart-closed-week"></canvas></div>'
+            html += f'<script>const closedWeekData = {chart_data["closed_by_week"]};</script>'
+        
+        # 2. Worklog by employee - Chart.js (horizontal bars for readability)
+        if chart_data.get('worklog_by_employee'):
+            html += f"<h3>{self._['worklog_by_employee']}</h3>"
+            html += f'<div class="chart-container"><canvas id="chart-worklog-employee"></canvas></div>'
+            html += f'<script>const worklogEmployeeData = {chart_data["worklog_by_employee"]};</script>'
+        
+        # 3. Aging buckets - Chart.js
+        if chart_data.get('aging_buckets'):
+            html += f"<h3>{self._['aging_buckets']}</h3>"
+            html += f'<div class="chart-container"><canvas id="chart-aging-buckets"></canvas></div>'
+            html += f'<script>const agingBucketsData = {chart_data["aging_buckets"]};</script>'
+        
+        # 4. Reopened by project - Chart.js
+        if chart_data.get('reopened_by_project'):
+            html += f"<h3>{self._['reopened_by_project']}</h3>"
+            html += f'<div class="chart-container"><canvas id="chart-reopened-project"></canvas></div>'
+            html += f'<script>const reopenedProjectData = {chart_data["reopened_by_project"]};</script>'
+        
+        # 5. Cycle time by week - Chart.js
+        if chart_data.get('cycle_time_by_week'):
+            html += f"<h3>{self._['cycle_time_by_week']}</h3>"
+            html += f'<div class="chart-container"><canvas id="chart-cycle-time-week"></canvas></div>'
+            html += f'<script>const cycleTimeWeekData = {chart_data["cycle_time_by_week"]};</script>'
+        
+        # 6. Status by project - Chart.js
+        if chart_data.get('status_by_project'):
+            html += f"<h3>{self._['status_by_project']}</h3>"
+            html += f'<div class="chart-container"><canvas id="chart-status-project"></canvas></div>'
+            html += f'<script>const statusProjectData = {chart_data["status_by_project"]};</script>'
+        
+        # Add Chart.js initialization script
+        html += """
+        <script>
+        // Chart.js configuration for all charts
+        Chart.defaults.font.family = "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
+        Chart.defaults.color = '#333';
+        
+        // 1. Closed tasks by week
+        if (typeof closedWeekData !== 'undefined') {
+            new Chart(document.getElementById('chart-closed-week'), {
+                type: 'bar',
+                data: closedWeekData,
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { position: 'top' },
+                        tooltip: { mode: 'index', intersect: false }
+                    },
+                    scales: {
+                        x: { stacked: true },
+                        y: { stacked: true, beginAtZero: true }
+                    }
+                }
+            });
+        }
+        
+        // 2. Worklog by employee (horizontal bars for readability)
+        if (typeof worklogEmployeeData !== 'undefined') {
+            new Chart(document.getElementById('chart-worklog-employee'), {
+                type: 'bar',
+                data: worklogEmployeeData,
+                options: {
+                    indexAxis: 'y',
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { display: false },
+                        tooltip: { enabled: true }
+                    },
+                    scales: {
+                        x: { beginAtZero: true, title: { display: true, text: 'Hours' } },
+                        y: { ticks: { autoSkip: false } }
+                    }
+                }
+            });
+        }
+        
+        // 3. Aging buckets
+        if (typeof agingBucketsData !== 'undefined') {
+            new Chart(document.getElementById('chart-aging-buckets'), {
+                type: 'bar',
+                data: agingBucketsData,
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { display: false },
+                        tooltip: { enabled: true }
+                    },
+                    scales: {
+                        y: { beginAtZero: true }
+                    }
+                }
+            });
+        }
+        
+        // 4. Reopened by project
+        if (typeof reopenedProjectData !== 'undefined') {
+            new Chart(document.getElementById('chart-reopened-project'), {
+                type: 'bar',
+                data: reopenedProjectData,
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { display: false },
+                        tooltip: { enabled: true }
+                    },
+                    scales: {
+                        y: { beginAtZero: true }
+                    }
+                }
+            });
+        }
+        
+        // 5. Cycle time by week
+        if (typeof cycleTimeWeekData !== 'undefined') {
+            new Chart(document.getElementById('chart-cycle-time-week'), {
+                type: 'line',
+                data: cycleTimeWeekData,
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { position: 'top' },
+                        tooltip: { mode: 'index', intersect: false }
+                    },
+                    scales: {
+                        y: { beginAtZero: true, title: { display: true, text: 'Days' } }
+                    }
+                }
+            });
+        }
+        
+        // 6. Status by project
+        if (typeof statusProjectData !== 'undefined') {
+            new Chart(document.getElementById('chart-status-project'), {
+                type: 'bar',
+                data: statusProjectData,
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { position: 'top' },
+                        tooltip: { mode: 'index', intersect: false }
+                    },
+                    scales: {
+                        x: { stacked: true },
+                        y: { stacked: true, beginAtZero: true }
+                    }
+                }
+            });
+        }
+        
+        // Download report as static HTML file
+        function downloadReport() {
+            // Get the HTML content
+            const htmlContent = document.documentElement.outerHTML;
+            
+            // Create a Blob with the HTML content
+            const blob = new Blob([htmlContent], { type: 'text/html' });
+            
+            // Create download link
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            
+            // Generate filename with date
+            const now = new Date();
+            const dateStr = now.toISOString().split('T')[0];
+            a.download = `jira_report_${dateStr}.html`;
+            
+            // Trigger download
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        }
+
+    </script>
+        """
+        
+        return html
+    
+    def _prepare_chart_data(self, report: ReportData) -> Dict:
+        """Prepare data for Chart.js charts."""
+        import json
+        
+        chart_data = {}
+        
+        # 1. Closed tasks by week
+        if report.weekly_throughput:
+            weekly_data = defaultdict(lambda: defaultdict(int))
+            for wt in report.weekly_throughput:
+                week_label = wt.week_start.strftime('%Y-%m-%d')
+                weekly_data[wt.project_key][week_label] = wt.closed_tasks_count
+            
+            projects = sorted(set(wt.project_key for wt in report.weekly_throughput))
+            weeks = sorted(set(wt.week_start.strftime('%Y-%m-%d') for wt in report.weekly_throughput))
+            
+            datasets = []
+            colors = ['#3498db', '#e74c3c', '#2ecc71', '#f39c12', '#9b59b']
+            for i, proj in enumerate(projects):
+                values = [weekly_data[proj].get(week, 0) for week in weeks]
+                datasets.append({
+                    'label': proj,
+                    'data': values,
+                    'backgroundColor': colors[i % len(colors)]
+                })
+            
+            chart_data['closed_by_week'] = json.dumps({
+                'labels': weeks,
+                'datasets': datasets
+            })
+        
+        # 2. Worklog by employee (horizontal bars)
+        if report.employee_metrics:
+            employees = [emp.display_name for emp in report.employee_metrics]
+            hours = [emp.worklog_hours for emp in report.employee_metrics]
+            
+            chart_data['worklog_by_employee'] = json.dumps({
+                'labels': employees,
+                'datasets': [{
+                    'label': 'Hours',
+                    'data': hours,
+                    'backgroundColor': '#3498db'
+                }]
+            })
+        
+        # 3. Aging buckets
+        buckets = {"0-7": 0, "8-14": 0, "15-30": 0, "30+": 0}
+        if report.aging_wip_data:
+            for aw in report.aging_wip_data:
+                if aw.aging_days <= 7:
+                    buckets["0-7"] += 1
+                elif aw.aging_days <= 14:
+                    buckets["8-14"] += 1
+                elif aw.aging_days <= 30:
+                    buckets["15-30"] += 1
+                else:
+                    buckets["30+"] += 1
+            
+            chart_data['aging_buckets'] = json.dumps({
+                'labels': list(buckets.keys()),
+                'datasets': [{
+                    'label': 'Count',
+                    'data': list(buckets.values()),
+                    'backgroundColor': '#f39c12'
+                }]
+            })
+        
+        # 4. Reopened by project
+        if report.project_metrics:
+            projects = [proj.project_key for proj in report.project_metrics]
+            reopened = [proj.reopened_tasks for proj in report.project_metrics]
+            
+            chart_data['reopened_by_project'] = json.dumps({
+                'labels': projects,
+                'datasets': [{
+                    'label': 'Reopened Count',
+                    'data': reopened,
+                    'backgroundColor': '#e74c3c'
+                }]
+            })
+        
+        # 5. Cycle time by week
+        if report.weekly_cycle_time:
+            week_labels = sorted(set(
+                wt.week_start.strftime('%Y-%m-%d') 
+                for wt in report.weekly_cycle_time
+            ))
+            projects = sorted(set(wt.project_key for wt in report.weekly_cycle_time))
+            
+            datasets = []
+            colors = ['#3498db', '#e74c3c', '#2ecc71', '#f39c12', '#9b59b']
+            for i, proj in enumerate(projects):
+                values = []
+                for week in week_labels:
+                    ct = next(
+                        (wt for wt in report.weekly_cycle_time 
+                            if wt.week_start.strftime('%Y-%m-%d') == week and wt.project_key == proj
+                        ), None)
+                    values.append(ct.median_cycle_time if ct and ct.median_cycle_time else None)
+                
+                # Filter out None values
+                filtered_values = [v for v in values if v is not None]
+                if filtered_values:
+                    datasets.append({
+                        'label': proj,
+                        'data': values,
+                        'borderColor': colors[i % len(colors)],
+                        'fill': False,
+                        'tension': 0.1
+                    })
+            
+            chart_data['cycle_time_by_week'] = json.dumps({
+                'labels': week_labels,
+                'datasets': datasets
+            })
+        
+        # 6. Status by project
+        if report.status_distribution:
+            all_statuses = sorted(set(sd.status for sd in report.status_distribution))
+            all_projects = sorted(set(sd.project_key for sd in report.status_distribution))
+            
+            data = defaultdict(lambda: defaultdict(int))
+            for sd in report.status_distribution:
+                data[sd.project_key][sd.status] = sd.count
+            
+            datasets = []
+            colors = ['#3498db', '#e74c3c', '#2ecc71', '#f39c12', '#9b59b', '#1abc9c']
+            for i, status in enumerate(all_statuses):
+                values = [data[proj].get(status, 0) for proj in all_projects]
+                datasets.append({
+                    'label': status,
+                    'data': values,
+                    'backgroundColor': colors[i % len(colors)]
+                })
+            
+            chart_data['status_by_project'] = json.dumps({
+                'labels': all_projects,
+                'datasets': datasets
+            })
+        
+        return chart_data
+    
+    def _generate_raw_data_sections(self, report: ReportData) -> str:
+        """Generate raw data sections with responsive wrappers and clickable issue keys."""
+        html = ""
+        
+        # Raw Issues
+        if report.raw_issues:
+            html += f"<h2>{self._['raw_issues']}</h2>"
+            html += "<div class='table-responsive'><table><thead><tr>"
+            for header in [self._["issue_key"], self._["project_key"], self._["issue_type"],
+                          self._["summary"], self._["status"], self._["created"],
+                          self._["assignee"], self._["reporter"], self._["due_date"],
+                          self._["priority"], self._["cycle_time_days"], self._["reopened_flag"],
+                          self._["blocked_flag"], self._["overdue_flag"], self._["aging_days"]]:
+                html += f"<th>{header}</th>"
+            html += "</tr></thead><tbody>"
+            
+            for issue in report.raw_issues:
+                html += "<tr>"
+                html += f"<td><a href='{self.jira_base}/browse/{issue.issue_key}' target='_blank'>{issue.issue_key}</a></td>"
+                html += f"<td><a href='{self.jira_base}/projects/{issue.project_key}' target='_blank'>{issue.project_key}</a></td>"
+                html += f"<td>{issue.issue_type or ''}</td>"
+                html += f"<td>{issue.summary}</td>"
+                html += f"<td>{issue.status}</td>"
+                html += f"<td>{issue.created.strftime('%Y-%m-%d') if issue.created else ''}</td>"
+                html += f"<td>{issue.assignee_display_name or ''}</td>"
+                html += f"<td>{issue.reporter or ''}</td>"
+                html += f"<td>{issue.due_date.strftime('%Y-%m-%d') if issue.due_date else ''}</td>"
+                html += f"<td>{issue.priority or ''}</td>"
+                html += f"<td>{f'{issue.cycle_time_days:.2f}' if issue.cycle_time_days is not None else 'N/A'}</td>"
+                html += f"<td>{'Yes' if issue.reopened_flag else 'No'}</td>"
+                html += f"<td>{'Yes' if issue.blocked_flag else 'No'}</td>"
+                html += f"<td>{'Yes' if issue.overdue_flag else 'No'}</td>"
+                html += f"<td>{issue.aging_days if issue.aging_days else 'N/A'}</td>"
+                html += "</tr>"
+            
+            html += "</tbody></table></div>"
+        
+        # Raw Worklogs
+        if report.raw_worklogs:
+            html += f"<h2>{self._['raw_worklogs']}</h2>"
+            html += "<div class='table-responsive'><table><thead><tr>"
+            for header in [self._["issue_key"], self._["project_key"], self._["employee_name"],
+                          self._["started"], self._["time_spent_hours"], self._["comment"]]:
+                html += f"<th>{header}</th>"
+            html += "</tr></thead><tbody>"
+            
+            for wl in report.raw_worklogs:
+                html += "<tr>"
+                html += f"<td><a href='{self.jira_base}/browse/{wl.issue_key}' target='_blank'>{wl.issue_key}</a></td>"
+                html += f"<td><a href='{self.jira_base}/projects/{wl.project_key}' target='_blank'>{wl.project_key}</a></td>"
+                html += f"<td>{wl.display_name}</td>"
+                html += f"<td>{wl.started.strftime('%Y-%m-%d %H:%M') if wl.started else ''}</td>"
+                html += f"<td>{wl.time_spent_hours:.2f}</td>"
+                html += f"<td>{wl.comment or ''}</td>"
+                html += "</tr>"
+            
+            html += "</tbody></table></div>"
+        
+        # Raw Transitions
+        if report.raw_transitions:
+            html += f"<h2>{self._['raw_transitions']}</h2>"
+            html += "<div class='table-responsive'><table><thead><tr>"
+            for header in [self._["issue_key"], self._["project_key"], self._["from_status"],
+                          self._["to_status"], self._["transition_date"], self._["transition_author"]]:
+                html += f"<th>{header}</th>"
+            html += "</tr></thead><tbody>"
+            
+            for trans in report.raw_transitions:
+                html += "<tr>"
+                html += f"<td><a href='{self.jira_base}/browse/{trans.issue_key}' target='_blank'>{trans.issue_key}</a></td>"
+                html += f"<td><a href='{self.jira_base}/projects/{trans.project_key}' target='_blank'>{trans.project_key}</a></td>"
+                html += f"<td>{trans.from_status}</td>"
+                html += f"<td>{trans.to_status}</td>"
+                html += f"<td>{trans.transition_date.strftime('%Y-%m-%d %H:%M') if trans.transition_date else ''}</td>"
+                html += f"<td>{trans.transition_author or ''}</td>"
+                html += "</tr>"
+            
+            html += "</tbody></table></div>"
+        
+        return html
+
+
+
+    def _generate_employee_worklog_summary_section(self, report: ReportData) -> str:
+        """Generate employee worklog hours summary - total hours per employee across all projects."""
+        if not report.employee_metrics:
+            return ""
+        
+        # Aggregate worklog hours by employee (across all projects)
+        employee_totals = {}
+        for emp in report.employee_metrics:
+            key = emp.display_name  # Use display_name as key
+            if key not in employee_totals:
+                employee_totals[key] = {
+                    'display_name': emp.display_name,
+                    'total_hours': 0.0,
+                    'projects': set()
+                }
+            employee_totals[key]['total_hours'] += emp.worklog_hours
+            employee_totals[key]['projects'].add(emp.project_key)
+        
+        # Sort by total hours descending
+        sorted_employees = sorted(employee_totals.values(), key=lambda x: x['total_hours'], reverse=True)
+        
+        html = f"<h2>{self._get('worklog_by_employee', 'Worklog by Employee')}</h2>"
+        html += "<div class='table-responsive'><table><thead><tr>"
+        for header in [self._get('employee_name', 'Employee Name'), 
+                      self._get('worklog_hours', 'Worklog Hours'),
+                      self._get('project_key', 'Projects Count')]:
+            html += f"<th>{header}</th>"
+        html += "</tr></thead><tbody>"
+        
+        for emp in sorted_employees:
+            html += "<tr>"
+            html += f"<td>{emp['display_name']}</td>"
+            html += f"<td>{emp['total_hours']:.2f}</td>"
+            html += f"<td>{len(emp['projects'])}</td>"
+            html += "</tr>"
+        
+        # Total row
+        html += '<tr class="total-row">'
+        html += f"<td>{self._get('total', 'TOTAL')}</td>"
+        html += f"<td>{sum(e['total_hours'] for e in sorted_employees):.2f}</td>"
+        html += f"<td>{len(employee_totals)}</td>"
+        html += "</tr>"
+        
+        html += "</tbody></table></div>"
+        return html
+    
+    def _get(self, key, default=None):
+        """Safe get from localization dict."""
+        return self._.get(key, default) if hasattr(self, '_') else default
+
+
+# Localization strings (same as xlsx_exporter)
+LOCALIZATION = {
+    "en": {
+        "summary": "Summary",
+        "by_employee": "By Employee",
+        "by_project": "By Project",
+        "weekly_throughput": "Weekly Throughput",
+        "cycle_time": "Cycle Time",
+        "aging_wip": "Aging WIP",
+        "overdue": "Overdue",
+        "reopened": "Reopened",
+        "raw_issues": "Raw Issues",
+        "raw_worklogs": "Raw Worklogs",
+        "raw_transitions": "Raw Transitions",
+        "metric": "Metric",
+        "value": "Value",
+        "report_period": "Report Period",
+        "total_worklog_hours": "Total Worklog Hours",
+        "total_created_issues": "Total Created Issues",
+        "total_closed_issues": "Total Closed Issues",
+        "throughput": "Throughput",
+        "median_cycle_time": "Median Cycle Time (days)",
+        "p85_cycle_time": "85th Percentile Cycle Time (days)",
+        "overdue_tasks": "Overdue Tasks",
+        "reopened_tasks": "Reopened Tasks",
+        "blocked_tasks": "Blocked Tasks",
+        "top_oldest_issues": "Top 5 Oldest Open Issues",
+        "issue_key": "Issue Key",
+        "summary": "Summary",
+        "project_key": "Project Key",
+        "status": "Status",
+        "created": "Created",
+        "aging_days": "Aging (days)",
+        "assignee": "Assignee",
+        "employee_name": "Employee Name",
+        "account_id": "Account ID",
+        "worklog_hours": "Worklog Hours",
+        "created_issues": "Created Issues",
+        "closed_issues": "Closed Issues",
+        "reopen_count": "Reopened Count",
+        "active_wip": "Active WIP",
+        "avg_cycle_time": "Avg Cycle Time",
+        "median_cycle_time": "Median Cycle Time",
+        "overdue_count": "Overdue Count",
+        "project": "Project",
+        "throughput_count": "Throughput",
+        "wip_count": "WIP Count",
+        "aging_7": "Aging >7 days",
+        "aging_14": "Aging >14 days",
+        "aging_30": "Aging >30 days",
+        "blocked_count": "Blocked Count",
+        "week_start": "Week Start",
+        "week_end": "Week End",
+        "created_count": "Created Count",
+        "closed_count": "Closed Count",
+        "net_flow": "Net Flow",
+        "issue_type": "Issue Type",
+        "reporter": "Reporter",
+        "start_progress_date": "Start Progress Date",
+        "done_date": "Done Date",
+        "cycle_time_days": "Cycle Time (days)",
+        "cycle_time_hours": "Cycle Time (hours)",
+        "reopened_flag": "Reopened?",
+        "last_status_change": "Last Status Change",
+        "blocked_flag": "Blocked?",
+        "due_date": "Due Date",
+        "overdue_flag": "Overdue?",
+        "priority": "Priority",
+        "days_overdue": "Days Overdue",
+        "reopen_date": "Reopen Date",
+        "current_status": "Current Status",
+        "from_status": "From Status",
+        "to_status": "To Status",
+        "transition_date": "Transition Date",
+        "transition_author": "Transition Author",
+        "started": "Started",
+        "time_spent_hours": "Time Spent (hours)",
+        "comment": "Comment",
+        "risk_type": "Risk Type",
+        "description": "Description",
+        "severity": "Severity",
+        "total": "TOTAL",
+        "cycle_time_by_week": "Cycle Time by Week",
+        "status_by_project": "Status by Project",
+        "charts": "Charts",
+        "closed_by_week": "Closed Tasks by Week",
+        "cycle_time_by_week": "Cycle Time by Week",
+        "worklog_by_employee": "Worklog by Employee",
+        "aging_buckets": "Aging WIP Buckets",
+        "status_by_project": "Status by Project",
+        "reopened_by_project": "Reopened by Project",
+    },
+    "ru": {
+        "summary": "Сводка",
+        "by_employee": "По сотрудникам",
+        "by_project": "По проектам",
+        "weekly_throughput": "Недельный Throughput",
+        "cycle_time": "Cycle Time",
+        "aging_wip": "Aging WIP",
+        "overdue": "Просроченные",
+        "reopened": "Переоткрытые",
+        "raw_issues": "Сырые данные задач",
+        "raw_worklogs": "Сырые данные трудозатрат",
+        "raw_transitions": "Сырые данные переходов",
+        "metric": "Показатель",
+        "value": "Значение",
+        "report_period": "Период отчета",
+        "total_worklog_hours": "Всего часов трудозатрат",
+        "total_created_issues": "Всего создано задач",
+        "total_closed_issues": "Всего закрыто задач",
+        "throughput": "Throughput",
+        "median_cycle_time": "Медиана Cycle Time (дни)",
+        "p85_cycle_time": "85-й перцентиль Cycle Time (дни)",
+        "overdue_tasks": "Просроченные задачи",
+        "reopened_tasks": "Переоткрытые задачи",
+        "blocked_tasks": "Заблокированные задачи",
+        "top_oldest_issues": "Топ-5 самых старых открытых задач",
+        "issue_key": "Ключ задачи",
+        "summary": "Название",
+        "project_key": "Проект",
+        "status": "Статус",
+        "created": "Создана",
+        "aging_days": "Возраст (дни)",
+        "assignee": "Исполнитель",
+        "employee_name": "Сотрудник",
+        "account_id": "ID аккаунта",
+        "worklog_hours": "Часы трудозатрат",
+        "created_issues": "Создано задач",
+        "closed_issues": "Закрыто задач",
+        "reopen_count": "Кол-во переоткрытий",
+        "active_wip": "Активный WIP",
+        "avg_cycle_time": "Средний Cycle Time",
+        "median_cycle_time": "Медиана Cycle Time",
+        "overdue_count": "Просрочено",
+        "project": "Проект",
+        "throughput_count": "Throughput",
+        "wip_count": "WIP",
+        "aging_7": "Возраст >7 дней",
+        "aging_14": "Возраст >14 дней",
+        "aging_30": "Возраст >30 дней",
+        "blocked_count": "Заблокировано",
+        "week_start": "Начало недели",
+        "week_end": "Конец недели",
+        "created_count": "Создано",
+        "closed_count": "Закрыто",
+        "net_flow": "Чистый поток",
+        "issue_type": "Тип задачи",
+        "reporter": "Репортер",
+        "start_progress_date": "Дата начала работы",
+        "done_date": "Дата завершения",
+        "cycle_time_days": "Cycle Time (дни)",
+        "cycle_time_hours": "Cycle Time (часы)",
+        "reopened_flag": "Переоткрыта?",
+        "last_status_change": "Последний переход",
+        "blocked_flag": "Заблокирована?",
+        "due_date": "Срок",
+        "overdue_flag": "Просрочена?",
+        "priority": "Приоритет",
+        "days_overdue": "Дней просрочки",
+        "reopen_date": "Дата переоткрытия",
+        "current_status": "Текущий статус",
+        "from_status": "Из статуса",
+        "to_status": "В статус",
+        "transition_date": "Дата перехода",
+        "transition_author": "Автор перехода",
+        "started": "Начало",
+        "time_spent_hours": "Часы",
+        "comment": "Комментарий",
+        "risk_type": "Тип риска",
+        "description": "Описание",
+        "severity": "Серьезность",
+        "total": "ИТОГО",
+        "cycle_time_by_week": "Cycle Time по неделям",
+        "status_by_project": "Статусы по проектам",
+        "charts": "Графики",
+        "closed_by_week": "Закрытые задачи по неделям",
+        "cycle_time_by_week": "Cycle Time по неделям",
+        "worklog_by_employee": "Трудозатраты по сотрудникам",
+        "aging_buckets": "Возрастные группы WIP",
+        "status_by_project": "Статусы по проектам",
+        "reopened_by_project": "Переоткрытые по проектам",
+    }
+}

@@ -24,6 +24,8 @@ try:
     # Create minimal test data
     logger.info("Creating test data...")
     report = ReportData(
+        year=2024,
+        month=1,
         start_date=datetime(2024, 1, 1),
         end_date=datetime(2024, 1, 31),
         total_worklog_hours=0,

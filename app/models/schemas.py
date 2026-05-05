@@ -184,50 +184,6 @@ class ReopenedData(BaseModel):
     current_status: str = ""
 
 
-class ReportData(BaseModel):
-    """Complete report data structure."""
-    
-    year: int
-    month: int
-    start_date: datetime
-    end_date: datetime
-    
-    # Basic metrics
-    employee_metrics: List[EmployeeMetrics] = []
-    project_metrics: List[ProjectMetrics] = []
-    total_worklog_hours: float = 0.0
-    total_created_issues: int = 0
-    total_closed_issues: int = 0
-    
-    # Flow metrics
-    throughput: int = 0
-    median_cycle_time: Optional[float] = None
-    p85_cycle_time: Optional[float] = None
-    wip_count: int = 0
-    aging_wip_count: int = 0
-    overdue_tasks_count: int = 0
-    reopened_tasks_count: int = 0
-    blocked_tasks_count: int = 0
-    
-    # Detailed data for sheets
-    weekly_throughput: List[WeeklyThroughput] = []
-    cycle_time_data: List[CycleTimeData] = []
-    aging_wip_data: List[AgingWipData] = []
-    overdue_data: List[OverdueData] = []
-    reopened_data: List[ReopenedData] = []
-    
-    # Raw data
-    raw_issues: List[IssueData] = []
-    raw_worklogs: List[WorklogEntry] = []
-    raw_transitions: List[IssueTransition] = []
-    
-    # Top oldest open issues
-    top_oldest_issues: List[Dict[str, Any]] = []
-    
-    # Include raw data flag
-    include_raw_data: bool = True
-
-
 class WeeklyCycleTime(BaseModel):
     """Weekly cycle time data."""
     

@@ -26,11 +26,32 @@
             display: flex;
             align-items: center;
             gap: 8px;
+            cursor: pointer;
+            user-select: none;
         }
 
         .info-section h3::before {
             content: "📋";
             font-size: 18px;
+        }
+
+        .info-section h3::after {
+            content: " ▶";
+            font-size: 12px;
+            transition: transform 0.3s;
+            margin-left: auto;
+        }
+
+        .info-section:not(.collapsed) h3::after {
+            content: " ▼";
+        }
+
+        .info-section.collapsed .info-content {
+            display: none;
+        }
+
+        .info-content {
+            transition: all 0.3s ease;
         }
 
         .info-section p {
@@ -363,8 +384,9 @@
         <h1>🎯 Генератор отчетов Jira</h1>
         <p class="subtitle">Создание отчетов за произвольный период в формате HTML или XLSX</p>
         
-        <div class="info-section">
+        <div class="info-section collapsed">
             <h3>Об отчете</h3>
+            <div class="info-content">
             <p>
                 Формируется отчет по производительности сотрудников на основе данных Jira.
                 Выгружаются данные по пользователям из группы <span class="highlight">IT</span>.
@@ -380,6 +402,7 @@
                 <li>Разбивка по проектам — распределение задач и метрик по проектам</li>
                 <li>Исходные данные (raw data) — полная выгрузка всех задач с деталями</li>
             </ul>
+            </div>
         </div>
         
         <div class="alert error" id="errorAlert"></div>
@@ -497,6 +520,13 @@
         // Set default dates (current month)
         window.onload = function() {
             setCurrentMonth();
+            
+            // Add toggle functionality to info section
+            const infoSection = document.querySelector('.info-section');
+            const infoHeader = infoSection.querySelector('h3');
+            infoHeader.addEventListener('click', function() {
+                infoSection.classList.toggle('collapsed');
+            });
         };
 
         // Quick action functions
@@ -612,7 +642,17 @@
                 });
                 
                 if (!response.ok) {
-                    throw new Error(`HTTP error! status: ${response.status}`);
+                    // Try to parse error message from response
+                    let errorMessage = `HTTP error! status: ${response.status}`;
+                    try {
+                        const errorData = await response.json();
+                        if (errorData.detail) {
+                            errorMessage = errorData.detail;
+                        }
+                    } catch (e) {
+                        // If can't parse JSON, use status text
+                    }
+                    throw new Error(errorMessage);
                 }
                 
                 // Complete progress
@@ -659,7 +699,9 @@
                     showSuccess('Отчет успешно сформирован в формате XLSX!');
                 }
             } catch (error) {
-                showError('Ошибка при формировании отчета: ' + error.message);
+                // Display the error message (already parsed from response in the try block)
+                const errorMessage = error.message || 'Ошибка при формировании отчета';
+                showError(errorMessage);
                 resetProgress();
                 clearProgressTimeouts();
             } finally {
@@ -754,7 +796,7 @@
             const alert = document.getElementById('errorAlert');
             alert.textContent = message;
             alert.classList.add('active');
-            setTimeout(() => alert.classList.remove('active'), 5000);
+            // Errors are not auto-hidden - user must take action to dismiss
         }
 
         function showSuccess(message) {
