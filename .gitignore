@@ -54,3 +54,6 @@ Thumbs.db
 
 # Roo
 .roo/
+
+# Plans (local planning documents)
+plans/
