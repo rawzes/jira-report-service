@@ -7,7 +7,7 @@ import io
 import json
 from urllib.parse import urlencode
 
-from app.models.schemas import MonthlyReportRequest, CustomReportRequest
+from app.models.schemas import MonthlyReportRequest, CustomReportRequest, ReportData
 from app.models.config import settings
 from app.services.jira_client import JiraClient
 from app.services.report_builder import ReportBuilder

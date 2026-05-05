@@ -7,9 +7,9 @@ from collections import defaultdict
 import statistics
 
 from app.models.schemas import (
-    ReportData, IssueData, WorklogEntry, EmployeeMetrics, ProjectMetrics, 
+    ReportData, IssueData, WorklogEntry, EmployeeMetrics, ProjectMetrics,
     IssueTransition, WeeklyThroughput, CycleTimeData, AgingWipData,
-    OverdueData, ReopenedData, StatusDistribution
+    OverdueData, ReopenedData, StatusDistribution, WeeklyCycleTime
 )
 from app.models.config import settings
 
