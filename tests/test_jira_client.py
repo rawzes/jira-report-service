@@ -8,6 +8,7 @@ from datetime import datetime
 from unittest.mock import AsyncMock, MagicMock, patch, PropertyMock
 from httpx import HTTPStatusError, RequestError, Response
 import asyncio
+from tenacity import RetryError
 
 from app.services.jira_client import JiraClient, JiraApiError, JiraRateLimitError
 from app.models.config import get_settings
@@ -237,7 +238,7 @@ class TestJiraClientMakeRequest:
         mock_client.request.return_value = mock_response
         jira_client._client = mock_client
 
-        with pytest.raises(httpx.HTTPStatusError):
+        with pytest.raises((httpx.HTTPStatusError, RetryError)):  # tenacity wraps with RetryError
             await jira_client._make_request("GET", "/test")
 
     @pytest.mark.asyncio

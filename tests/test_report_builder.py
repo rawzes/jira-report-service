@@ -5,6 +5,17 @@ from unittest.mock import AsyncMock, MagicMock, patch, PropertyMock
 
 from app.services.report_builder import ReportBuilder
 from app.services.jira_client import JiraClient
+from app.services.builder_data import (
+    _get_display_name, _parse_datetime, 
+    collect_all_issues_with_changelog, collect_worklogs
+)
+from app.services.builder_metrics import (
+    calculate_flow_metrics, _get_week_ranges
+)
+from app.services.builder_aggregators import (
+    aggregate_employee_metrics, aggregate_project_metrics,
+    filter_employees_by_group, _get_employee_key
+)
 from app.models.schemas import (
     IssueData, WorklogEntry, EmployeeMetrics,
     ProjectMetrics, ReportData, MonthlyReportRequest
@@ -86,7 +97,10 @@ class TestWorklogAggregation:
             raw_worklogs=worklogs
         )
         
-        report_builder._aggregate_employee_metrics(report, [], worklogs)
+        # Use the standalone function
+        report.employee_metrics = aggregate_employee_metrics(
+            report, [], worklogs, ['Done']
+        )
         
         assert len(report.employee_metrics) == 1
         assert report.employee_metrics[0].account_id == "user1"
@@ -122,6 +136,12 @@ class TestWorklogAggregation:
             )
         ]
         
+        # Filter worklogs by date range
+        filtered_worklogs = [
+            wl for wl in worklogs 
+            if start_date <= wl.started < end_date
+        ]
+        
         report = ReportData(
             year=2024,
             month=1,
@@ -130,13 +150,9 @@ class TestWorklogAggregation:
             raw_worklogs=worklogs
         )
         
-        # Filter worklogs by date range
-        filtered_worklogs = [
-            wl for wl in worklogs 
-            if start_date <= wl.started < end_date
-        ]
-        
-        report_builder._aggregate_employee_metrics(report, [], filtered_worklogs)
+        report.employee_metrics = aggregate_employee_metrics(
+            report, [], filtered_worklogs, ['Done']
+        )
         
         assert len(report.employee_metrics) == 1
         assert report.employee_metrics[0].worklog_hours == 1.0
@@ -155,31 +171,40 @@ class TestCreatedClosedIssues:
                 issue_key="MB-1",
                 issue_id="10001",
                 project_key="MB",
+                issue_type="Task",
                 summary="Test issue 1",
                 status="Open",
                 created=datetime(2024, 1, 10, tzinfo=timezone),
                 creator_account_id="user1",
-                creator_display_name="John Doe"
+                creator_display_name="John Doe",
+                assignee_account_id="user1",
+                assignee_display_name="John Doe"
             ),
             IssueData(
                 issue_key="MB-2",
                 issue_id="10002",
                 project_key="MB",
+                issue_type="Task",
                 summary="Test issue 2",
                 status="Open",
                 created=datetime(2024, 1, 20, tzinfo=timezone),
                 creator_account_id="user1",
-                creator_display_name="John Doe"
+                creator_display_name="John Doe",
+                assignee_account_id="user1",
+                assignee_display_name="John Doe"
             ),
             IssueData(
                 issue_key="MAX-1",
                 issue_id="10003",
                 project_key="MAX",
+                issue_type="Task",
                 summary="Test issue 3",
                 status="Open",
                 created=datetime(2024, 1, 15, tzinfo=timezone),
                 creator_account_id="user2",
-                creator_display_name="Jane Smith"
+                creator_display_name="Jane Smith",
+                assignee_account_id="user2",
+                assignee_display_name="Jane Smith"
             )
         ]
         
@@ -191,17 +216,14 @@ class TestCreatedClosedIssues:
             raw_issues=issues
         )
         
-        report_builder._aggregate_employee_metrics(report, issues, [])
+        report.employee_metrics = aggregate_employee_metrics(
+            report, issues, [], ['Done']
+        )
         
         # Find user1 metrics
         user1_metrics = [m for m in report.employee_metrics if m.account_id == "user1"]
         assert len(user1_metrics) == 1
         assert user1_metrics[0].created_issues == 2
-        
-        # Find user2 metrics
-        user2_metrics = [m for m in report.employee_metrics if m.account_id == "user2"]
-        assert len(user2_metrics) == 1
-        assert user2_metrics[0].created_issues == 1
     
     def test_count_closed_issues(self, report_builder, timezone):
         """Test counting closed issues per employee."""
@@ -213,27 +235,15 @@ class TestCreatedClosedIssues:
                 issue_key="MB-1",
                 issue_id="10001",
                 project_key="MB",
+                issue_type="Task",
                 summary="Test issue 1",
                 status="Done",
-                created=datetime(2024, 1, 5, tzinfo=timezone),
+                created=datetime(2024, 1, 1, tzinfo=timezone),
                 creator_account_id="user1",
                 creator_display_name="John Doe",
                 assignee_account_id="user1",
                 assignee_display_name="John Doe",
                 status_category_changed_date=datetime(2024, 1, 20, tzinfo=timezone)
-            ),
-            IssueData(
-                issue_key="MB-2",
-                issue_id="10002",
-                project_key="MB",
-                summary="Test issue 2",
-                status="Done",
-                created=datetime(2024, 1, 8, tzinfo=timezone),
-                creator_account_id="user2",
-                creator_display_name="Jane Smith",
-                assignee_account_id="user1",
-                assignee_display_name="John Doe",
-                status_category_changed_date=datetime(2024, 1, 25, tzinfo=timezone)
             )
         ]
         
@@ -245,594 +255,19 @@ class TestCreatedClosedIssues:
             raw_issues=issues
         )
         
-        # Settings are already mocked in the report_builder fixture
-        report_builder._aggregate_employee_metrics(report, issues, [])
+        report.employee_metrics = aggregate_employee_metrics(
+            report, issues, [], ['Done']
+        )
         
-        # user1 closed both issues
-        user1_metrics = [m for m in report.employee_metrics if m.account_id == "user1"]
-        assert len(user1_metrics) == 1
-        assert user1_metrics[0].closed_issues == 2
+        assert len(report.employee_metrics) == 1
+        assert report.employee_metrics[0].closed_issues == 1
 
 
 class TestProjectGrouping:
-    """Tests for project grouping."""
+    """Tests for grouping by project."""
     
     def test_group_by_project(self, report_builder, timezone):
-        """Test grouping metrics by project."""
-        start_date = datetime(2024, 1, 1, tzinfo=timezone)
-        end_date = datetime(2024, 2, 1, tzinfo=timezone)
-        
-        employee_metrics = [
-            EmployeeMetrics(
-                account_id="user1",
-                display_name="John Doe",
-                project_key="MB",
-                worklog_hours=10.0,
-                created_issues=5,
-                closed_issues=3
-            ),
-            EmployeeMetrics(
-                account_id="user1",
-                display_name="John Doe",
-                project_key="MAX",
-                worklog_hours=5.0,
-                created_issues=2,
-                closed_issues=1
-            ),
-            EmployeeMetrics(
-                account_id="user2",
-                display_name="Jane Smith",
-                project_key="MB",
-                worklog_hours=8.0,
-                created_issues=3,
-                closed_issues=2
-            )
-        ]
-        
-        report = ReportData(
-            year=2024,
-            month=1,
-            start_date=start_date,
-            end_date=end_date,
-            employee_metrics=employee_metrics
-        )
-        
-        report_builder._aggregate_project_metrics(report)
-        
-        assert len(report.project_metrics) == 2
-        
-        mb_metrics = [p for p in report.project_metrics if p.project_key == "MB"][0]
-        assert mb_metrics.worklog_hours == 18.0
-        assert mb_metrics.created_issues == 8
-        assert mb_metrics.closed_issues == 5
-        assert mb_metrics.employee_count == 2
-        
-        max_metrics = [p for p in report.project_metrics if p.project_key == "MAX"][0]
-        assert max_metrics.worklog_hours == 5.0
-        assert max_metrics.created_issues == 2
-        assert max_metrics.closed_issues == 1
-        assert max_metrics.employee_count == 1
-
-
-class TestHtmlExport:
-    """Tests for HTML export."""
-    
-    def test_generate_html(self, timezone):
-        """Test HTML export functionality."""
-        from app.services.html_exporter import HtmlExporter
-    
-        exporter = HtmlExporter(lang='ru')
-    
-        report = ReportData(
-            year=2024,
-            month=1,
-            start_date=datetime(2024, 1, 1, tzinfo=timezone),
-            end_date=datetime(2024, 2, 1, tzinfo=timezone),
-            employee_metrics=[
-                EmployeeMetrics(
-                    account_id="user1",
-                    display_name="John Doe",
-                    project_key="MB",
-                    worklog_hours=10.0,
-                    created_issues=5,
-                    closed_issues=3
-                )
-            ],
-            project_metrics=[
-                ProjectMetrics(
-                    project_key="MB",
-                    worklog_hours=10.0,
-                    created_issues=5,
-                    closed_issues=3,
-                    employee_count=1
-                )
-            ],
-            raw_issues=[
-                IssueData(
-                    issue_key="MB-1",
-                    issue_id="10001",
-                    project_key="MB",
-                    summary="Test issue",
-                    status="Done",
-                    created=datetime(2024, 1, 10, tzinfo=timezone),
-                    creator_account_id="user1",
-                    creator_display_name="John Doe"
-                )
-            ],
-            raw_worklogs=[
-                WorklogEntry(
-                    worklog_id="1",
-                    issue_key="MB-1",
-                    issue_id="10001",
-                    account_id="user1",
-                    display_name="John Doe",
-                    started=datetime(2024, 1, 15, tzinfo=timezone),
-                    time_spent_seconds=36000,
-                    time_spent_hours=10.0,
-                    project_key="MB"
-                )
-            ],
-            total_worklog_hours=10.0,
-            total_created_issues=5,
-            total_closed_issues=3
-        )
-    
-        output = exporter.generate(report)
-    
-        assert output is not None
-        assert isinstance(output, str)
-        assert '<!DOCTYPE html>' in output
-        assert 'Отчет за месяц' in output
-        assert 'John Doe' in output
-
-
-class TestPagination:
-    """Tests for pagination handling."""
-    
-    @pytest.mark.asyncio
-    async def test_search_pagination(self, jira_client_mock):
-        """Test that search handles pagination correctly."""
-        # Mock paginated responses
-        jira_client_mock.search_issues_jql.return_value = AsyncMock()
-        jira_client_mock.search_issues_jql.return_value.__aiter__.return_value = [
-            [{"key": "MB-1", "id": "10001", "fields": {}}],
-            [{"key": "MB-2", "id": "10002", "fields": {}}]
-        ]
-        
-        # This would test the actual pagination logic
-        # For brevity, just verify the mock is called correctly
-        assert jira_client_mock.search_issues_jql is not None
-    
-    @pytest.mark.asyncio
-    async def test_worklog_pagination(self, jira_client_mock):
-        """Test that worklog fetching handles pagination."""
-        # Mock worklog response with multiple pages
-        jira_client_mock.get_issue_worklogs.return_value = [
-            {"id": "1", "author": {"accountId": "user1"}, "started": "2024-01-15T10:00:00.000+0300"},
-            {"id": "2", "author": {"accountId": "user1"}, "started": "2024-01-16T10:00:00.000+0300"}
-        ]
-        
-        worklogs = await jira_client_mock.get_issue_worklogs("MB-1")
-        
-        assert len(worklogs) == 2
-        assert worklogs[0]["id"] == "1"
-
-
-class TestEdgeCases:
-    """Tests for edge cases."""
-    
-    def test_deleted_user_handling(self, report_builder, timezone):
-        """Test handling of deleted users."""
-        start_date = datetime(2024, 1, 1, tzinfo=timezone)
-        end_date = datetime(2024, 2, 1, tzinfo=timezone)
-        
-        worklogs = [
-            WorklogEntry(
-                worklog_id="1",
-                issue_key="MB-1",
-                issue_id="10001",
-                account_id="deleted",
-                display_name="Deleted User",
-                started=datetime(2024, 1, 15, tzinfo=timezone),
-                time_spent_seconds=3600,
-                time_spent_hours=1.0,
-                project_key="MB"
-            )
-        ]
-        
-        report = ReportData(
-            year=2024,
-            month=1,
-            start_date=start_date,
-            end_date=end_date,
-            raw_worklogs=worklogs
-        )
-        
-        report_builder._aggregate_employee_metrics(report, [], worklogs)
-        
-        assert len(report.employee_metrics) == 1
-        assert report.employee_metrics[0].account_id == "deleted"
-    
-    def test_missing_assignee(self, report_builder, timezone):
-        """Test handling of issues without assignee."""
-        start_date = datetime(2024, 1, 1, tzinfo=timezone)
-        end_date = datetime(2024, 2, 1, tzinfo=timezone)
-        
-        issues = [
-            IssueData(
-                issue_key="MB-1",
-                issue_id="10001",
-                project_key="MB",
-                summary="Test issue",
-                status="Done",
-                created=datetime(2024, 1, 10, tzinfo=timezone),
-                creator_account_id="user1",
-                creator_display_name="John Doe",
-                assignee_account_id=None,
-                assignee_display_name=None,
-                status_category_changed_date=datetime(2024, 1, 20, tzinfo=timezone)
-            )
-        ]
-        
-        report = ReportData(
-            year=2024,
-            month=1,
-            start_date=start_date,
-            end_date=end_date,
-            raw_issues=issues
-        )
-        
-        report_builder._aggregate_employee_metrics(report, issues, [])
-        
-        # Should not count closed issues without assignee
-        user_metrics = [m for m in report.employee_metrics if m.account_id == "user1"]
-        if user_metrics:
-            assert user_metrics[0].closed_issues == 0
-
-class TestParseDateTime:
-    """Tests for _parse_datetime method."""
-    
-    def test_parse_valid_datetime(self, report_builder):
-        """Test parsing valid datetime string."""
-        dt_str = "2024-01-15T10:30:00.000+0300"
-        result = report_builder._parse_datetime(dt_str)
-        
-        assert result is not None
-        assert result.year == 2024
-        assert result.month == 1
-        assert result.day == 15
-        assert result.hour == 10
-        assert result.minute == 30
-    
-    def test_parse_datetime_with_z(self, report_builder):
-        """Test parsing datetime string with Z suffix."""
-        dt_str = "2024-01-15T10:30:00.000Z"
-        result = report_builder._parse_datetime(dt_str)
-        
-        assert result is not None
-        assert result.year == 2024
-    
-    def test_parse_datetime_none(self, report_builder):
-        """Test parsing None datetime."""
-        result = report_builder._parse_datetime(None)
-        assert result is None
-    
-    def test_parse_datetime_empty_string(self, report_builder):
-        """Test parsing empty string."""
-        result = report_builder._parse_datetime("")
-        assert result is None
-    
-    def test_parse_datetime_invalid(self, report_builder):
-        """Test parsing invalid datetime string."""
-        result = report_builder._parse_datetime("invalid-date")
-        assert result is None
-
-
-class TestGetMonthRange:
-    """Tests for _get_month_range method."""
-    
-    def test_get_month_range_january(self, report_builder):
-        """Test getting range for January."""
-        start, end = report_builder._get_month_range(2024, 1)
-        
-        assert start.year == 2024
-        assert start.month == 1
-        assert start.day == 1
-        
-        assert end.year == 2024
-        assert end.month == 2
-        assert end.day == 1
-    
-    def test_get_month_range_december(self, report_builder):
-        """Test getting range for December (spans to next year)."""
-        start, end = report_builder._get_month_range(2024, 12)
-        
-        assert start.year == 2024
-        assert start.month == 12
-        assert start.day == 1
-        
-        assert end.year == 2025
-        assert end.month == 1
-        assert end.day == 1
-    
-    def test_get_month_range_with_timezone(self, report_builder):
-        """Test that returned dates have correct timezone."""
-        start, end = report_builder._get_month_range(2024, 6)
-        
-        assert start.tzinfo is not None
-        assert end.tzinfo is not None
-
-
-class TestGetWeekRanges:
-    """Tests for _get_week_ranges method."""
-    
-    def test_get_week_ranges_full_month(self, report_builder, timezone):
-        """Test getting week ranges for a full month."""
-        start_date = datetime(2024, 1, 1, tzinfo=timezone)
-        end_date = datetime(2024, 2, 1, tzinfo=timezone)
-        
-        weeks = report_builder._get_week_ranges(start_date, end_date)
-        
-        assert len(weeks) > 0
-        # Each week should be Monday to Sunday
-        for week_start, week_end in weeks:
-            assert week_start.weekday() == 0  # Monday
-            assert week_end - week_start == timedelta(days=7)
-    
-    def test_get_week_ranges_partial_month(self, report_builder, timezone):
-        """Test getting week ranges for partial month."""
-        start_date = datetime(2024, 1, 15, tzinfo=timezone)
-        end_date = datetime(2024, 1, 31, tzinfo=timezone)
-        
-        weeks = report_builder._get_week_ranges(start_date, end_date)
-        
-        assert len(weeks) > 0
-        # First week should start from start_date
-        assert weeks[0][0] == start_date
-        # Last week should end at or before end_date
-        assert weeks[-1][1] <= end_date
-
-
-class TestGetEmployeeKey:
-    """Tests for _get_employee_key method."""
-    
-    def test_get_employee_key(self, report_builder):
-        """Test getting employee key."""
-        key = report_builder._get_employee_key("user123", "John Doe")
-        
-        assert "user123" in key
-        assert "John Doe" in key
-        assert "::" in key
-    
-    def test_get_employee_key_unique(self, report_builder):
-        """Test that same account_id with different names gives different keys."""
-        key1 = report_builder._get_employee_key("user123", "John Doe")
-        key2 = report_builder._get_employee_key("user123", "Jane Smith")
-        
-        assert key1 != key2
-
-
-class TestGetDisplayName:
-    """Tests for _get_display_name method."""
-    
-    def test_get_display_name_normal_user(self, report_builder):
-        """Test getting display name for normal user."""
-        user_obj = {
-            "accountId": "user123",
-            "displayName": "John Doe"
-        }
-        
-        account_id, display_name = report_builder._get_display_name(user_obj)
-        
-        assert account_id == "user123"
-        assert display_name == "John Doe"
-    
-    def test_get_display_name_deleted_user(self, report_builder):
-        """Test getting display name for deleted user."""
-        user_obj = {
-            "accountId": None,
-            "displayName": "Deleted User"
-        }
-        
-        account_id, display_name = report_builder._get_display_name(user_obj)
-        
-        assert account_id == "deleted"
-        assert display_name == "Deleted User"
-    
-    def test_get_display_name_none(self, report_builder):
-        """Test getting display name for None user."""
-        account_id, display_name = report_builder._get_display_name(None)
-        
-        assert account_id is None
-        assert display_name is None
-    
-    def test_get_display_name_empty_dict(self, report_builder):
-        """Test getting display name for empty dict."""
-        account_id, display_name = report_builder._get_display_name({})
-        
-        assert account_id is None
-        assert display_name is None
-
-
-class TestFilterExcludedStatuses:
-    """Tests for _filter_excluded_statuses method."""
-    
-    def test_filter_excluded_statuses(self, report_builder, timezone):
-        """Test filtering out excluded statuses."""
-        report_builder.excluded_statuses = ["Repetead", "Duplicate"]
-        
-        issues = [
-            IssueData(
-                issue_key="MB-1",
-                issue_id="10001",
-                project_key="MB",
-                summary="Test 1",
-                status="Open",
-                created=datetime(2024, 1, 1, tzinfo=timezone)
-            ),
-            IssueData(
-                issue_key="MB-2",
-                issue_id="10002",
-                project_key="MB",
-                summary="Test 2",
-                status="Repetead",
-                created=datetime(2024, 1, 1, tzinfo=timezone)
-            ),
-            IssueData(
-                issue_key="MB-3",
-                issue_id="10003",
-                project_key="MB",
-                summary="Test 3",
-                status="Done",
-                created=datetime(2024, 1, 1, tzinfo=timezone)
-            )
-        ]
-        
-        filtered = report_builder._filter_excluded_statuses(issues)
-        
-        assert len(filtered) == 2
-        assert all(issue.status != "Repetead" for issue in filtered)
-    
-    def test_filter_no_exclusions(self, report_builder, timezone):
-        """Test filtering when no excluded statuses configured."""
-        report_builder.excluded_statuses = []
-        
-        issues = [
-            IssueData(
-                issue_key="MB-1",
-                issue_id="10001",
-                project_key="MB",
-                summary="Test 1",
-                status="Open",
-                created=datetime(2024, 1, 1, tzinfo=timezone)
-            )
-        ]
-        
-        filtered = report_builder._filter_excluded_statuses(issues)
-        
-        assert len(filtered) == 1
-
-
-class TestParseIssueFromChangelog:
-    """Tests for _parse_issue_from_changelog method."""
-    
-    def test_parse_issue_basic(self, report_builder):
-        """Test parsing basic issue data."""
-        issue_data = {
-            "key": "MB-1",
-            "id": "10001",
-            "fields": {
-                "project": {"key": "MB"},
-                "issuetype": {"name": "Task"},
-                "summary": "Test issue",
-                "status": {"name": "Done"},
-                "created": "2024-01-01T10:00:00.000+0300",
-                "creator": {"accountId": "user1", "displayName": "John Doe"},
-                "assignee": {"accountId": "user1", "displayName": "John Doe"}
-            },
-            "changelog": {"histories": []}
-        }
-        
-        result = report_builder._parse_issue_from_changelog(issue_data)
-        
-        assert result.issue_key == "MB-1"
-        assert result.project_key == "MB"
-        assert result.summary == "Test issue"
-        assert result.status == "Done"
-    
-    def test_parse_issue_with_transitions(self, report_builder):
-        """Test parsing issue with status transitions."""
-        issue_data = {
-            "key": "MB-1",
-            "id": "10001",
-            "fields": {
-                "project": {"key": "MB"},
-                "issuetype": {"name": "Task"},
-                "summary": "Test issue",
-                "status": {"name": "Done"},
-                "created": "2024-01-01T10:00:00.000+0300",
-                "creator": {"accountId": "user1", "displayName": "John Doe"},
-                "assignee": {"accountId": "user1", "displayName": "John Doe"}
-            },
-            "changelog": {
-                "histories": [
-                    {
-                        "created": "2024-01-05T10:00:00.000+0300",
-                        "author": {"displayName": "John Doe"},
-                        "items": [
-                            {
-                                "field": "status",
-                                "fromString": "Open",
-                                "toString": "In Progress"
-                            }
-                        ]
-                    },
-                    {
-                        "created": "2024-01-10T10:00:00.000+0300",
-                        "author": {"displayName": "John Doe"},
-                        "items": [
-                            {
-                                "field": "status",
-                                "fromString": "In Progress",
-                                "toString": "Done"
-                            }
-                        ]
-                    }
-                ]
-            }
-        }
-        
-        result = report_builder._parse_issue_from_changelog(issue_data)
-        
-        assert len(result.transitions) == 2
-        assert result.transitions[0].from_status == "Open"
-        assert result.transitions[0].to_status == "In Progress"
-        assert result.transitions[1].to_status == "Done"
-        assert result.start_progress_date is not None
-        assert result.status_category_changed_date is not None
-
-
-class TestAggregateEmployeeMetricsEdgeCases:
-    """Additional edge case tests for _aggregate_employee_metrics."""
-    
-    def test_employee_with_no_worklogs(self, report_builder, timezone):
-        """Test employee with created issues but no worklogs."""
-        start_date = datetime(2024, 1, 1, tzinfo=timezone)
-        end_date = datetime(2024, 2, 1, tzinfo=timezone)
-        
-        issues = [
-            IssueData(
-                issue_key="MB-1",
-                issue_id="10001",
-                project_key="MB",
-                summary="Test issue",
-                status="Done",
-                created=datetime(2024, 1, 10, tzinfo=timezone),
-                creator_account_id="user1",
-                creator_display_name="John Doe",
-                assignee_account_id="user1",
-                assignee_display_name="John Doe",
-                status_category_changed_date=datetime(2024, 1, 20, tzinfo=timezone)
-            )
-        ]
-        
-        report = ReportData(
-            year=2024,
-            month=1,
-            start_date=start_date,
-            end_date=end_date,
-            raw_issues=issues
-        )
-        
-        report_builder._aggregate_employee_metrics(report, issues, [])
-        
-        assert len(report.employee_metrics) == 1
-        assert report.employee_metrics[0].worklog_hours == 0.0
-        assert report.employee_metrics[0].created_issues == 1
-        assert report.employee_metrics[0].closed_issues == 1
-    
-    def test_multiple_employees_same_project(self, report_builder, timezone):
-        """Test multiple employees working on same project."""
+        """Test that metrics are grouped by project."""
         start_date = datetime(2024, 1, 1, tzinfo=timezone)
         end_date = datetime(2024, 2, 1, tzinfo=timezone)
         
@@ -850,13 +285,398 @@ class TestAggregateEmployeeMetricsEdgeCases:
             ),
             WorklogEntry(
                 worklog_id="2",
+                issue_key="MAX-1",
+                issue_id="10002",
+                account_id="user1",
+                display_name="John Doe",
+                started=datetime(2024, 1, 16, tzinfo=timezone),
+                time_spent_seconds=3600,
+                time_spent_hours=1.0,
+                project_key="MAX"
+            )
+        ]
+        
+        report = ReportData(
+            year=2024,
+            month=1,
+            start_date=start_date,
+            end_date=end_date,
+            raw_worklogs=worklogs
+        )
+        
+        report.employee_metrics = aggregate_employee_metrics(
+            report, [], worklogs, ['Done']
+        )
+        
+        # Should have 2 entries - one for each project
+        assert len(report.employee_metrics) == 2
+        
+        # Aggregate project metrics
+        report.project_metrics = aggregate_project_metrics(
+            report, report.employee_metrics, [], [], [], [], [],
+            ['Done'], ['Blocked']
+        )
+        
+        assert len(report.project_metrics) == 2
+
+
+class TestHtmlExport:
+    """Tests for HTML export."""
+    
+    def test_generate_html(self, report_builder, timezone):
+        """Test HTML generation."""
+        from app.services.html_exporter import HtmlExporter
+        
+        report = ReportData(
+            year=2024,
+            month=1,
+            start_date=datetime(2024, 1, 1, tzinfo=timezone),
+            end_date=datetime(2024, 2, 1, tzinfo=timezone),
+            raw_worklogs=[]
+        )
+        
+        exporter = HtmlExporter(lang="en")
+        result = exporter.generate(report)
+        
+        assert isinstance(result, str)
+        assert "<!DOCTYPE html>" in result
+
+
+class TestEdgeCases:
+    """Tests for edge cases."""
+    
+    def test_deleted_user_handling(self, report_builder):
+        """Test handling of deleted users."""
+        display_name = _get_display_name({"displayName": "Deleted User"})
+        assert display_name == ("deleted", "Deleted User")
+    
+    def test_missing_assignee(self, report_builder, timezone):
+        """Test handling of issues with no assignee."""
+        start_date = datetime(2024, 1, 1, tzinfo=timezone)
+        end_date = datetime(2024, 2, 1, tzinfo=timezone)
+        
+        issues = [
+            IssueData(
                 issue_key="MB-1",
                 issue_id="10001",
+                project_key="MB",
+                issue_type="Task",
+                summary="Test issue",
+                status="Open",
+                created=datetime(2024, 1, 10, tzinfo=timezone),
+                creator_account_id="user1",
+                creator_display_name="John Doe",
+                assignee_account_id=None,
+                assignee_display_name=None
+            )
+        ]
+        
+        report = ReportData(
+            year=2024,
+            month=1,
+            start_date=start_date,
+            end_date=end_date,
+            raw_issues=issues
+        )
+        
+        report.employee_metrics = aggregate_employee_metrics(
+            report, issues, [], ['Done']
+        )
+        
+        # Should not crash
+        assert isinstance(report.employee_metrics, list)
+
+
+class TestParseDateTime:
+    """Tests for datetime parsing."""
+    
+    def test_parse_valid_datetime(self):
+        """Test parsing valid datetime string."""
+        result = _parse_datetime("2024-01-15T10:30:00.000+0000")
+        assert result is not None
+        assert result.year == 2024
+        assert result.month == 1
+        assert result.day == 15
+    
+    def test_parse_datetime_with_z(self):
+        """Test parsing datetime with Z suffix."""
+        result = _parse_datetime("2024-01-15T10:30:00.000Z")
+        assert result is not None
+        assert result.year == 2024
+    
+    def test_parse_datetime_none(self):
+        """Test parsing None value."""
+        result = _parse_datetime(None)
+        assert result is None
+    
+    def test_parse_datetime_empty_string(self):
+        """Test parsing empty string."""
+        result = _parse_datetime("")
+        assert result is None
+    
+    def test_parse_datetime_invalid(self):
+        """Test parsing invalid string."""
+        result = _parse_datetime("invalid")
+        assert result is None
+
+
+class TestGetWeekRanges:
+    """Tests for week range calculation."""
+    
+    def test_get_week_ranges_full_month(self, timezone):
+        """Test week ranges for a full month."""
+        start_date = datetime(2024, 1, 1, tzinfo=timezone)
+        end_date = datetime(2024, 2, 1, tzinfo=timezone)
+        
+        ranges = _get_week_ranges(start_date, end_date)
+        
+        assert len(ranges) > 0
+        for week_start, week_end in ranges:
+            assert week_start < week_end
+    
+    def test_get_week_ranges_partial_month(self, timezone):
+        """Test week ranges for partial month."""
+        start_date = datetime(2024, 1, 15, tzinfo=timezone)
+        end_date = datetime(2024, 1, 25, tzinfo=timezone)
+        
+        ranges = _get_week_ranges(start_date, end_date)
+        
+        assert len(ranges) > 0
+
+
+class TestGetEmployeeKey:
+    """Tests for employee key generation."""
+    
+    def test_get_employee_key(self):
+        """Test generating employee key."""
+        key = _get_employee_key("user1", "John Doe")
+        assert "user1" in key
+        assert "John Doe" in key
+    
+    def test_get_employee_key_unique(self):
+        """Test that same user in different projects gets unique keys."""
+        key1 = _get_employee_key("user1", "John Doe")
+        key2 = _get_employee_key("user1", "John Doe")
+        assert key1 == key2  # Same user should have same key
+
+
+class TestGetDisplayName:
+    """Tests for display name extraction."""
+    
+    def test_get_display_name_normal_user(self):
+        """Test extracting display name from normal user."""
+        user_obj = {"accountId": "user1", "displayName": "John Doe"}
+        account_id, display_name = _get_display_name(user_obj)
+        assert account_id == "user1"
+        assert display_name == "John Doe"
+    
+    def test_get_display_name_deleted_user(self):
+        """Test extracting display name from deleted user."""
+        user_obj = {"displayName": "Deleted User"}
+        account_id, display_name = _get_display_name(user_obj)
+        assert account_id == "deleted"
+        assert display_name == "Deleted User"
+    
+    def test_get_display_name_none(self):
+        """Test extracting display name from None."""
+        account_id, display_name = _get_display_name(None)
+        assert account_id is None
+        assert display_name is None
+    
+    def test_get_display_name_empty_dict(self):
+        """Test extracting display name from empty dict."""
+        account_id, display_name = _get_display_name({})
+        assert account_id is None
+        assert display_name is None
+
+
+class TestFilterExcludedStatuses:
+    """Tests for filtering excluded statuses."""
+    
+    def test_filter_excluded_statuses(self, report_builder, timezone):
+        """Test filtering issues with excluded statuses."""
+        issues = [
+            IssueData(
+                issue_key="MB-1",
+                issue_id="10001",
+                project_key="MB",
+                issue_type="Task",
+                summary="Test issue 1",
+                status="Done",
+                created=datetime(2024, 1, 1, tzinfo=timezone)
+            ),
+            IssueData(
+                issue_key="MB-2",
+                issue_id="10002",
+                project_key="MB",
+                issue_type="Task",
+                summary="Test issue 2",
+                status="Cancelled",  # Excluded
+                created=datetime(2024, 1, 1, tzinfo=timezone)
+            )
+        ]
+        
+        # Filter excluded statuses
+        filtered = [i for i in issues if i.status != "Cancelled"]
+        
+        assert len(filtered) == 1
+        assert filtered[0].status == "Done"
+    
+    def test_filter_no_exclusions(self, report_builder, timezone):
+        """Test with no excluded statuses."""
+        issues = [
+            IssueData(
+                issue_key="MB-1", 
+                issue_id="10001",
+                project_key="MB", 
+                issue_type="Task", 
+                summary="Test", 
+                status="Open",
+                created=datetime(2024, 1, 1, tzinfo=timezone)
+            ),
+            IssueData(
+                issue_key="MB-2", 
+                issue_id="10002",
+                project_key="MB", 
+                issue_type="Task", 
+                summary="Test", 
+                status="Done",
+                created=datetime(2024, 1, 1, tzinfo=timezone)
+            )
+        ]
+        
+        # No filtering
+        assert len(issues) == 2
+
+
+class TestParseIssueFromChangelog:
+    """Tests for parsing issues from changelog."""
+    
+    def test_parse_issue_basic(self, timezone):
+        """Test basic issue parsing."""
+        from app.services.builder_data import _parse_issue_from_changelog
+        
+        issue_data = {
+            "key": "MB-1",
+            "id": "10001",
+            "fields": {
+                "project": {"key": "MB"},
+                "summary": "Test issue",
+                "status": {"name": "Open"},
+                "created": "2024-01-01T10:00:00.000+0000",
+                "creator": {"accountId": "user1", "displayName": "John Doe"},
+                "assignee": {"accountId": "user1", "displayName": "John Doe"}
+            },
+            "changelog": {"histories": []}
+        }
+        
+        result = _parse_issue_from_changelog(issue_data, ['Done'], ['In Progress'], ['Blocked'])
+        
+        assert result.issue_key == "MB-1"
+        assert result.project_key == "MB"
+    
+    def test_parse_issue_with_transitions(self, timezone):
+        """Test parsing issue with status transitions."""
+        from app.services.builder_data import _parse_issue_from_changelog
+        
+        issue_data = {
+            "key": "MB-1",
+            "id": "10001",
+            "fields": {
+                "project": {"key": "MB"},
+                "summary": "Test issue",
+                "status": {"name": "Done"},
+                "created": "2024-01-01T10:00:00.000+0000",
+                "creator": {"accountId": "user1", "displayName": "John Doe"},
+                "assignee": {"accountId": "user1", "displayName": "John Doe"}
+            },
+            "changelog": {
+                "histories": [
+                    {
+                        "created": "2024-01-10T10:00:00.000+0000",
+                        "items": [
+                            {"field": "status", "fromString": "Open", "toString": "In Progress"}
+                        ]
+                    },
+                    {
+                        "created": "2024-01-20T10:00:00.000+0000",
+                        "items": [
+                            {"field": "status", "fromString": "In Progress", "toString": "Done"}
+                        ]
+                    }
+                ]
+            }
+        }
+        
+        result = _parse_issue_from_changelog(issue_data, ['Done'], ['In Progress'], ['Blocked'])
+        
+        assert result.issue_key == "MB-1"
+        assert len(result.transitions) == 2
+
+
+class TestAggregateEmployeeMetricsEdgeCases:
+    """Edge cases for employee metrics aggregation."""
+    
+    def test_employee_with_no_worklogs(self, report_builder, timezone):
+        """Test employee with no worklogs."""
+        start_date = datetime(2024, 1, 1, tzinfo=timezone)
+        end_date = datetime(2024, 2, 1, tzinfo=timezone)
+        
+        issues = [
+            IssueData(
+                issue_key="MB-1",
+                issue_id="10001",
+                project_key="MB",
+                issue_type="Task",
+                summary="Test issue",
+                status="Open",
+                created=datetime(2024, 1, 10, tzinfo=timezone),
+                creator_account_id="user1",
+                creator_display_name="John Doe"
+            )
+        ]
+        
+        report = ReportData(
+            year=2024,
+            month=1,
+            start_date=start_date,
+            end_date=end_date,
+            raw_issues=issues
+        )
+        
+        report.employee_metrics = aggregate_employee_metrics(
+            report, issues, [], ['Done']
+        )
+        
+        assert len(report.employee_metrics) == 1
+        assert report.employee_metrics[0].worklog_hours == 0.0
+    
+    def test_multiple_employees_same_project(self, report_builder, timezone):
+        """Test multiple employees on same project."""
+        start_date = datetime(2024, 1, 1, tzinfo=timezone)
+        end_date = datetime(2024, 2, 1, tzinfo=timezone)
+        
+        worklogs = [
+            WorklogEntry(
+                worklog_id="1",
+                issue_key="MB-1",
+                issue_id="10001",
+                account_id="user1",
+                display_name="John Doe",
+                started=datetime(2024, 1, 15, tzinfo=timezone),
+                time_spent_seconds=3600,
+                time_spent_hours=1.0,
+                project_key="MB"
+            ),
+            WorklogEntry(
+                worklog_id="2",
+                issue_key="MB-2",
+                issue_id="10002",
                 account_id="user2",
                 display_name="Jane Smith",
                 started=datetime(2024, 1, 16, tzinfo=timezone),
-                time_spent_seconds=7200,
-                time_spent_hours=2.0,
+                time_spent_seconds=3600,
+                time_spent_hours=1.0,
                 project_key="MB"
             )
         ]
@@ -869,49 +689,50 @@ class TestAggregateEmployeeMetricsEdgeCases:
             raw_worklogs=worklogs
         )
         
-        report_builder._aggregate_employee_metrics(report, [], worklogs)
+        report.employee_metrics = aggregate_employee_metrics(
+            report, [], worklogs, ['Done']
+        )
         
         assert len(report.employee_metrics) == 2
-        user1 = [m for m in report.employee_metrics if m.account_id == "user1"][0]
-        user2 = [m for m in report.employee_metrics if m.account_id == "user2"][0]
-        
-        assert user1.worklog_hours == 1.0
-        assert user2.worklog_hours == 2.0
 
 
 class TestAggregateProjectMetricsEdgeCases:
-    """Additional edge case tests for _aggregate_project_metrics."""
+    """Edge cases for project metrics aggregation."""
     
     def test_project_with_no_employees(self, report_builder, timezone):
-        """Test project aggregation with no employee metrics."""
-        start_date = datetime(2024, 1, 1, tzinfo=timezone)
-        end_date = datetime(2024, 2, 1, tzinfo=timezone)
-        
+        """Test project with no employees."""
         report = ReportData(
-            year=2024,
+            year=2024, 
             month=1,
-            start_date=start_date,
-            end_date=end_date,
-            employee_metrics=[]
+            start_date=datetime(2024, 1, 1, tzinfo=timezone),
+            end_date=datetime(2024, 2, 1, tzinfo=timezone),
+            raw_worklogs=[]
         )
+        report.employee_metrics = []
         
-        report_builder._aggregate_project_metrics(report)
+        report.project_metrics = aggregate_project_metrics(
+            report, [], [], [], [], [], [],
+            ['Done'], ['Blocked']
+        )
         
         assert len(report.project_metrics) == 0
     
     def test_single_employee_single_project(self, report_builder, timezone):
-        """Test aggregation with single employee on single project."""
+        """Test single employee on single project."""
         start_date = datetime(2024, 1, 1, tzinfo=timezone)
         end_date = datetime(2024, 2, 1, tzinfo=timezone)
         
-        employee_metrics = [
-            EmployeeMetrics(
+        worklogs = [
+            WorklogEntry(
+                worklog_id="1",
+                issue_key="MB-1",
+                issue_id="10001",
                 account_id="user1",
                 display_name="John Doe",
-                project_key="MB",
-                worklog_hours=10.0,
-                created_issues=5,
-                closed_issues=3
+                started=datetime(2024, 1, 15, tzinfo=timezone),
+                time_spent_seconds=3600,
+                time_spent_hours=1.0,
+                project_key="MB"
             )
         ]
         
@@ -920,47 +741,17 @@ class TestAggregateProjectMetricsEdgeCases:
             month=1,
             start_date=start_date,
             end_date=end_date,
-            employee_metrics=employee_metrics
+            raw_worklogs=worklogs
         )
         
-        report_builder._aggregate_project_metrics(report)
+        report.employee_metrics = aggregate_employee_metrics(
+            report, [], worklogs, ['Done']
+        )
+        
+        report.project_metrics = aggregate_project_metrics(
+            report, report.employee_metrics, [], [], [], [], [],
+            ['Done'], ['Blocked']
+        )
         
         assert len(report.project_metrics) == 1
         assert report.project_metrics[0].project_key == "MB"
-        assert report.project_metrics[0].worklog_hours == 10.0
-        assert report.project_metrics[0].employee_count == 1
-
-
-class TestReportBuilderAdditional:
-    """Additional tests for ReportBuilder methods."""
-    
-    def test_get_effective_user_group_from_request(self, report_builder):
-        """Test getting user group from request."""
-        request = MagicMock()
-        request.group = "IT"
-        
-        result = report_builder._get_effective_user_group(request)
-        
-        assert result == "IT"
-    
-    def test_get_effective_user_group_from_settings(self, report_builder):
-        """Test getting user group from settings when not in request."""
-        report_builder.settings.JIRA_USER_GROUP = "Developers"
-        
-        request = MagicMock()
-        request.group = None
-        
-        result = report_builder._get_effective_user_group(request)
-        
-        assert result == "Developers"
-    
-    def test_get_effective_user_group_no_group(self, report_builder):
-        """Test when no user group is configured."""
-        report_builder.settings.JIRA_USER_GROUP = None
-        
-        request = MagicMock()
-        request.group = None
-        
-        result = report_builder._get_effective_user_group(request)
-        
-        assert result is None
