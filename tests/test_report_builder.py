@@ -9,7 +9,7 @@ from app.models.schemas import (
     IssueData, WorklogEntry, EmployeeMetrics,
     ProjectMetrics, ReportData, MonthlyReportRequest
 )
-from app.models.config import settings
+from app.models.config import get_settings
 
 
 @pytest.fixture
@@ -23,7 +23,17 @@ def jira_client_mock():
 @pytest.fixture
 def report_builder(jira_client_mock):
     """Create ReportBuilder with mocked client."""
-    with patch.object(settings, 'TIMEZONE', 'Europe/Minsk'):
+    with patch('app.models.config.get_settings') as mock_get_settings:
+        mock_settings = MagicMock()
+        mock_settings.TIMEZONE = 'Europe/Minsk'
+        mock_settings.done_statuses_list = ['Done']
+        mock_settings.start_statuses_list = ['In Progress']
+        mock_settings.blocked_statuses_list = ['Blocked']
+        mock_settings.excluded_statuses_list = []
+        mock_settings.JIRA_USER_GROUP = None
+        mock_settings.project_keys_list = []
+        mock_get_settings.return_value = mock_settings
+        
         builder = ReportBuilder(jira_client_mock)
         builder.jira = jira_client_mock
         return builder
@@ -235,8 +245,8 @@ class TestCreatedClosedIssues:
             raw_issues=issues
         )
         
-        with patch.object(type(settings), 'done_statuses_list', PropertyMock(return_value=['Done']), create=True):
-            report_builder._aggregate_employee_metrics(report, issues, [])
+        # Settings are already mocked in the report_builder fixture
+        report_builder._aggregate_employee_metrics(report, issues, [])
         
         # user1 closed both issues
         user1_metrics = [m for m in report.employee_metrics if m.account_id == "user1"]
