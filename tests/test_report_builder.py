@@ -1,12 +1,12 @@
 import pytest
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch, PropertyMock
 
 from app.services.report_builder import ReportBuilder
 from app.services.jira_client import JiraClient
 from app.models.schemas import (
-    IssueData, WorklogEntry, EmployeeMetrics, 
+    IssueData, WorklogEntry, EmployeeMetrics,
     ProjectMetrics, ReportData, MonthlyReportRequest
 )
 from app.models.config import settings
@@ -235,7 +235,7 @@ class TestCreatedClosedIssues:
             raw_issues=issues
         )
         
-        with patch.object(settings, 'done_statuses_list', ['Done']):
+        with patch.object(type(settings), 'done_statuses_list', PropertyMock(return_value=['Done']), create=True):
             report_builder._aggregate_employee_metrics(report, issues, [])
         
         # user1 closed both issues
@@ -307,12 +307,12 @@ class TestProjectGrouping:
 class TestXlsxGeneration:
     """Tests for XLSX generation."""
     
-    def test_generate_xlsx(self, timezone):
-        """Test XLSX file generation."""
-        from app.services.xlsx_exporter import XlsxExporter
-        
-        exporter = XlsxExporter()
-        
+    def test_generate_html(self, timezone):
+        """Test HTML export functionality."""
+        from app.services.html_exporter import HtmlExporter
+    
+        exporter = HtmlExporter(lang='ru')
+    
         report = ReportData(
             year=2024,
             month=1,
@@ -366,21 +366,14 @@ class TestXlsxGeneration:
             total_created_issues=5,
             total_closed_issues=3
         )
-        
+    
         output = exporter.generate(report)
-        
+    
         assert output is not None
-        assert isinstance(output, bytes) or hasattr(output, 'read')
-        
-        # Verify it's a valid XLSX by checking for expected sheets
-        from openpyxl import load_workbook
-        wb = load_workbook(output)
-        
-        assert "Summary" in wb.sheetnames
-        assert "By Employee" in wb.sheetnames
-        assert "By Project" in wb.sheetnames
-        assert "Raw Issues" in wb.sheetnames
-        assert "Raw Worklogs" in wb.sheetnames
+        assert isinstance(output, str)
+        assert '<!DOCTYPE html>' in output
+        assert 'Отчет за месяц' in output
+        assert 'John Doe' in output
 
 
 class TestPagination:

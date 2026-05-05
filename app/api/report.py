@@ -23,6 +23,7 @@ async def generate_monthly_report_get(
     year: int,
     month: int,
     project_keys: Optional[str] = None,
+    group: Optional[str] = Query(None, description="User group for report"),
     lang: str = Query("ru", description="Language for report (en, ru)"),
     format: str = Query("html", description="Response format: html, htmldownload or json")
 ):
@@ -33,6 +34,7 @@ async def generate_monthly_report_get(
         year: Report year
         month: Report month (1-12)
         project_keys: Comma-separated project keys (e.g., "PROJ1,PROJ2")
+        group: User group for report (e.g., "IT")
         lang: Language for report (en, ru)
         format: Response format (html, htmldownload or json)
     
@@ -49,6 +51,7 @@ async def generate_monthly_report_get(
         year=year,
         month=month,
         project_keys=parsed_project_keys,
+        group=group,
         group_by_projects=True,
         include_raw_data=True
     )
@@ -95,6 +98,7 @@ async def generate_custom_report_get(
         start_date: Report start date (YYYY-MM-DD)
         end_date: Report end date (YYYY-MM-DD)
         project_keys: Comma-separated project keys (e.g., "PROJ1,PROJ2")
+        group: User group for report (e.g., "IT")
         lang: Language for report (en, ru)
         format: Response format (html, htmldownload or json)
     
@@ -157,6 +161,8 @@ def _build_shareable_url(request, report, is_monthly: bool = True) -> str:
         }
         if request.project_keys:
             params['project_keys'] = ','.join(request.project_keys)
+        if request.group:
+            params['group'] = request.group
         return f"{base_url}/reports/monthly?{urlencode(params)}"
     else:
         # For custom reports, use inclusive end_date for the URL
@@ -170,6 +176,8 @@ def _build_shareable_url(request, report, is_monthly: bool = True) -> str:
         }
         if request.project_keys:
             params['project_keys'] = ','.join(request.project_keys)
+        if request.group:
+            params['group'] = request.group
         return f"{base_url}/reports/custom?{urlencode(params)}"
 
 
@@ -178,7 +186,8 @@ async def _generate_report(request: MonthlyReportRequest, lang: str = "ru", form
     try:
         logger.info(
             f"Generating monthly report for {request.year}-{request.month:02d}, "
-            f"projects: {request.project_keys or 'default'}, "
+            f"projects: {request.project_keys or 'default (from ENV)'}, "
+            f"group: {request.group or 'default (from ENV)'}, "
             f"group_by_projects: {request.group_by_projects}, "
             f"include_raw_data: {request.include_raw_data}, "
             f"lang: {lang}, format: {format}"
@@ -211,7 +220,7 @@ async def _generate_report(request: MonthlyReportRequest, lang: str = "ru", form
                         }
                     )
                 return HTMLResponse(content=html_content)
-
+    
     except Exception as e:
         logger.error(f"Failed to generate report: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Failed to generate report: {str(e)}")
@@ -222,7 +231,8 @@ async def _generate_custom_report(request: CustomReportRequest, lang: str = "ru"
     try:
         logger.info(
             f"Generating custom report for {request.start_date} to {request.end_date}, "
-            f"projects: {request.project_keys or 'default'}, "
+            f"projects: {request.project_keys or 'default (from ENV)'}, "
+            f"group: {request.group or 'default (from ENV)'}, "
             f"group_by_projects: {request.group_by_projects}, "
             f"include_raw_data: {request.include_raw_data}, "
             f"lang: {lang}, format: {format}"
@@ -255,7 +265,7 @@ async def _generate_custom_report(request: CustomReportRequest, lang: str = "ru"
                         }
                     )
                 return HTMLResponse(content=html_content)
-
+    
     except Exception as e:
         logger.error(f"Failed to generate custom report: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Failed to generate report: {str(e)}")

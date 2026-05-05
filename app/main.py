@@ -6,6 +6,7 @@ from fastapi.templating import Jinja2Templates
 import sys
 
 from app.api import report
+from app.models.config import settings
 
 # Configure templates
 templates = Jinja2Templates(directory="app/templates")

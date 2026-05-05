@@ -48,8 +48,7 @@ class ReportBuilder:
         self.start_statuses = settings.start_statuses_list
         self.blocked_statuses = settings.blocked_statuses_list
         self.excluded_statuses = settings.excluded_statuses_list
-        self.user_group = settings.JIRA_USER_GROUP
-        
+    
     def _parse_datetime(self, date_str: Optional[str]) -> Optional[datetime]:
         """Parse Jira datetime string to datetime with timezone."""
         if not date_str:
@@ -229,6 +228,12 @@ class ReportBuilder:
             last_status_change_date=last_status_change_date
         )
     
+    def _get_effective_user_group(self, request) -> Optional[str]:
+        """Get the effective user group from request or ENV settings."""
+        if hasattr(request, 'group') and request.group:
+            return request.group
+        return settings.JIRA_USER_GROUP
+    
     async def build_report(self, request) -> ReportData:
         """Build complete monthly report with flow metrics."""
         from app.models.schemas import MonthlyReportRequest
@@ -239,9 +244,8 @@ class ReportBuilder:
         project_keys = request.project_keys or settings.project_keys_list
         start_date, end_date = self._get_month_range(request.year, request.month)
         
-        # Use group from request if provided
-        if hasattr(request, 'group') and request.group:
-            self.user_group = request.group
+        # Get effective user group (from request or ENV)
+        user_group = self._get_effective_user_group(request)
         
         report = ReportData(
             year=request.year,
@@ -266,7 +270,7 @@ class ReportBuilder:
         self._aggregate_employee_metrics(report, all_issues, all_worklogs)
         
         # Filter employees by Jira group if configured
-        await self._filter_employees_by_group(report)
+        await self._filter_employees_by_group(report, user_group)
         
         # Aggregate project metrics
         self._aggregate_project_metrics(report)
@@ -717,20 +721,20 @@ class ReportBuilder:
         
         report.employee_metrics = list(emp_metrics.values())
     
-    async def _filter_employees_by_group(self, report: ReportData):
+    async def _filter_employees_by_group(self, report: ReportData, user_group: Optional[str] = None):
         """Filter employee metrics to only include users from the configured Jira group."""
-        if not self.user_group:
+        if not user_group:
             return
         
         try:
-            logger.info(f"Fetching members of Jira group: {self.user_group}")
-            group_members = await self.jira.get_group_members(self.user_group)
+            logger.info(f"Fetching members of Jira group: {user_group}")
+            group_members = await self.jira.get_group_members(user_group)
             
             # Extract account IDs from group members
             group_account_ids = {member.get("accountId") for member in group_members if member.get("accountId")}
             
             if not group_account_ids:
-                logger.warning(f"No members found in group {self.user_group}")
+                logger.warning(f"No members found in group {user_group}")
                 return
             
             # Filter employee metrics to only include users in the group
@@ -742,12 +746,12 @@ class ReportBuilder:
             
             filtered_count = original_count - len(report.employee_metrics)
             if filtered_count > 0:
-                logger.info(f"Filtered out {filtered_count} employees not in group '{self.user_group}'")
+                logger.info(f"Filtered out {filtered_count} employees not in group '{user_group}'")
             
-            logger.info(f"Report now includes {len(report.employee_metrics)} employees from group '{self.user_group}'")
+            logger.info(f"Report now includes {len(report.employee_metrics)} employees from group '{user_group}'")
             
         except Exception as e:
-            logger.error(f"Failed to filter employees by group '{self.user_group}': {e}")
+            logger.error(f"Failed to filter employees by group '{user_group}': {e}")
             # Continue without filtering if there's an error
     
     def _aggregate_project_metrics(self, report: ReportData):
@@ -825,9 +829,8 @@ class ReportBuilder:
         
         project_keys = request.project_keys or settings.project_keys_list
         
-        # Use group from request if provided
-        if hasattr(request, 'group') and request.group:
-            self.user_group = request.group
+        # Get effective user group (from request or ENV)
+        user_group = self._get_effective_user_group(request)
         
         # Convert date to datetime with timezone
         # Use exclusive end_date (first moment of next day) for consistency with monthly reports
@@ -858,7 +861,7 @@ class ReportBuilder:
         self._aggregate_employee_metrics(report, all_issues, all_worklogs)
         
         # Filter employees by Jira group if configured
-        await self._filter_employees_by_group(report)
+        await self._filter_employees_by_group(report, user_group)
         
         # Aggregate project metrics
         self._aggregate_project_metrics(report)

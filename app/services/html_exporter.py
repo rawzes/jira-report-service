@@ -71,7 +71,7 @@ class HtmlExporter:
 <body>
     <div class="container">
         <h1>📊 Отчет за месяц</h1>
-        <p class="subtitle">""" + interval_str + """</p>"""
+        <p class="subtitle">""" + interval_str + """</p>
         <button id="downloadBtn" class="download-btn" onclick="downloadReport()">📥 Скачать отчет</button>
 """)
             
@@ -162,7 +162,6 @@ class HtmlExporter:
                 document.querySelectorAll('.tab-button').forEach(function(b) { b.classList.remove('active'); });
                 document.querySelectorAll('.tab-content').forEach(function(c) {
                     c.classList.remove('active');
-                    c.style.opacity = '0';
                 });
                 
                 // Add active class to clicked button and corresponding content
@@ -170,25 +169,6 @@ class HtmlExporter:
                 const tabId = button.getAttribute('data-tab');
                 const targetContent = document.getElementById(tabId);
                 targetContent.classList.add('active');
-                setTimeout(function() {
-                    targetContent.style.opacity = '1';
-                }, 50);
-            });
-        });
-        
-        // Summary navigation links
-        document.querySelectorAll('.summary-nav-link').forEach(function(link) {
-            link.addEventListener('click', function(e) {
-                e.preventDefault();
-                const tabId = link.getAttribute('data-tab');
-                if (tabId) {
-                    // Find and click the corresponding tab button
-                    document.querySelectorAll('.tab-button').forEach(function(b) {
-                        if (b.getAttribute('data-tab') === tabId) {
-                            b.click();
-                        }
-                    });
-                }
             });
         });
     </script>
@@ -412,126 +392,11 @@ class HtmlExporter:
             width: 100% !important;
             height: 100% !important;
         }
-        .risk-stats {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 15px;
-            margin-bottom: 20px;
-        }
-        .risk-stat-card {
-            background: #f8f9fa;
-            padding: 20px;
-            border-radius: 8px;
-            text-align: center;
-            border-left: 4px solid #3498db;
-            transition: transform 0.2s;
-            cursor: pointer;
-        }
-        .risk-stat-card:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
-        }
-        .risk-stat-card.high {
-            border-left-color: #e74c3c;
-        }
-        .risk-stat-card.medium {
-            border-left-color: #f39c12;
-        }
-        .risk-stat-card.low {
-            border-left-color: #3498db;
-        }
-        .risk-stat-count {
-            font-size: 36px;
-            font-weight: bold;
-            color: #2c3e50;
-        }
-        .risk-stat-label {
-            color: #7f8c8d;
-            font-size: 14px;
-            margin-top: 5px;
-        }
-        .risk-card {
-            background: #fff;
-            border: 1px solid #e0e0e0;
-            border-radius: 8px;
-            padding: 15px;
-            margin-bottom: 10px;
-            border-left: 4px solid #f39c12;
-        }
-        .risk-card.high {
-            border-left-color: #e74c3c;
-        }
-        .risk-card.medium {
-            border-left-color: #f39c12;
-        }
-        .risk-card.low {
-            border-left-color: #3498db;
-        }
-        .risk-type {
-            font-weight: bold;
-            color: #2c3e50;
-            margin-bottom: 5px;
-        }
-        .risk-description {
-            color: #555;
-            font-size: 14px;
-            margin-bottom: 5px;
-        }
-        .risk-meta {
-            color: #7f8c8d;
-            font-size: 12px;
-        }
         .no-data {
             color: #7f8c8d;
             font-style: italic;
             padding: 20px;
             text-align: center;
-        }
-        
-        /* Summary Navigation Block */
-        .summary-nav {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            padding: 20px;
-            border-radius: 12px;
-            margin-bottom: 30px;
-            color: white;
-        }
-        .summary-nav h2 {
-            color: white;
-            border-bottom: 2px solid rgba(255,255,255,0.3);
-            margin-top: 0;
-        }
-        .summary-nav-links {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 10px;
-            margin-top: 15px;
-        }
-        .summary-nav-link {
-            padding: 8px 16px;
-            background: rgba(255,255,255,0.2);
-            border: 1px solid rgba(255,255,255,0.3);
-            border-radius: 6px;
-            color: white;
-            text-decoration: none;
-            font-size: 14px;
-            transition: all 0.3s;
-            cursor: pointer;
-        }
-        .summary-nav-link:hover {
-            background: rgba(255,255,255,0.3);
-            transform: translateY(-1px);
-            color: white;
-            text-decoration: none;
-        }
-        
-        /* Risk Chart Container */
-        .risk-chart-container {
-            width: 100%;
-            max-width: 500px;
-            height: 300px;
-            margin: 20px auto;
-            position: relative;
         }
         
         /* Responsive improvements */
@@ -556,7 +421,7 @@ class HtmlExporter:
         
         /* Download button */
         .download-btn {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            background: #3498db;
             color: white;
             border: none;
             padding: 12px 24px;
@@ -569,8 +434,9 @@ class HtmlExporter:
             display: inline-block;
         }
         .download-btn:hover {
+            background: #2980b9;
             transform: translateY(-2px);
-            box-shadow: 0 10px 20px rgba(102, 126, 234, 0.4);
+            box-shadow: 0 10px 20px rgba(52, 152, 219, 0.4);
         }
 """
     
@@ -583,16 +449,6 @@ class HtmlExporter:
                                    overdue_jql: str, reopened_jql: str, blocked_jql: str) -> str:
         """Generate summary section with JIRA links and navigation."""
         html = f"<h2>{self._['summary']}</h2>"
-        
-        # Add summary navigation block
-        html += '<div class="summary-nav">'
-        html += f'<h2>{self._["summary"]}</h2>'
-        html += '<div class="summary-nav-links">'
-        html += f'<a class="summary-nav-link" data-tab="by-employee">{self._["by_employee"]}</a>'
-        html += f'<a class="summary-nav-link" data-tab="by-project">{self._["by_project"]}</a>'
-        html += f'<a class="summary-nav-link" data-tab="charts">{self._["charts"]}</a>'
-        html += f'<a class="summary-nav-link" data-tab="raw-data">{self._["raw_issues"]}</a>'
-        html += '</div></div>'
         
         html += '<div class="metrics-grid">'
         
@@ -1441,9 +1297,6 @@ LOCALIZATION = {
         "started": "Started",
         "time_spent_hours": "Time Spent (hours)",
         "comment": "Comment",
-        "risk_type": "Risk Type",
-        "description": "Description",
-        "severity": "Severity",
         "total": "TOTAL",
         "cycle_time_by_week": "Cycle Time by Week",
         "status_by_project": "Status by Project",
@@ -1531,9 +1384,6 @@ LOCALIZATION = {
         "started": "Начало",
         "time_spent_hours": "Часы",
         "comment": "Комментарий",
-        "risk_type": "Тип риска",
-        "description": "Описание",
-        "severity": "Серьезность",
         "total": "ИТОГО",
         "cycle_time_by_week": "Cycle Time по неделям",
         "status_by_project": "Статусы по проектам",

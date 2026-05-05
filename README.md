@@ -140,22 +140,69 @@ REPORT_LANG=ru
 
 ## Running Locally
 
-### Using Docker (Recommended)
+### Option 1: Using Virtual Environment (Recommended for Development)
 
-1. Create `.env` file with your credentials
+1. Clone the repository:
+   ```bash
+   git clone <repository-url>
+   cd jira-report
+   ```
+
+2. Run the setup script:
+   - **macOS/Linux:**
+     ```bash
+     bash scripts/setup-venv.sh
+     ```
+   - **Windows (PowerShell):**
+     ```powershell
+     .\scripts\setup-venv.ps1
+     ```
+
+3. Edit `.env` file with your Jira credentials:
+   ```bash
+   # Edit .env and set your values
+   JIRA_BASE_URL=https://your-domain.atlassian.net
+   JIRA_EMAIL=your-email@example.com
+   JIRA_API_TOKEN=your-api-token
+   ```
+
+4. Activate the virtual environment (if not already activated):
+   - **macOS/Linux:** `source .venv/bin/activate`
+   - **Windows:** `.venv\Scripts\Activate.ps1`
+
+5. Start the development server:
+   ```bash
+   uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+   ```
+
+6. Open http://localhost:8000 in your browser
+
+### Option 2: Using Docker
+
+1. Create `.env` file with your credentials:
+   ```bash
+   cp .env.example .env
+   # Edit .env with your Jira credentials
+   ```
+
 2. Start the service:
-
-```bash
-docker-compose up -d
-```
+   ```bash
+   docker-compose up -d
+   ```
 
 3. Service will be available at http://localhost:8000
 
-### Using Python Directly
+### Running Tests
 
 ```bash
-pip install -r requirements.txt
-uvicorn app.main:app --host 0.0.0.0 --port 8000
+# Ensure virtual environment is activated
+source .venv/bin/activate  # or .venv\Scripts\Activate.ps1 on Windows
+
+# Run tests
+pytest tests/ -v
+
+# Run with coverage
+pytest tests/ --cov=app --cov-report=html
 ```
 
 ## API Documentation
