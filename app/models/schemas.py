@@ -9,6 +9,7 @@ class MonthlyReportRequest(BaseModel):
     year: int
     month: int
     project_keys: Optional[List[str]] = None
+    group: Optional[str] = None
     group_by_projects: bool = True
     include_raw_data: bool = True
 
@@ -19,6 +20,7 @@ class CustomReportRequest(BaseModel):
     start_date: date
     end_date: date
     project_keys: Optional[List[str]] = None
+    group: Optional[str] = None
     group_by_projects: bool = True
     include_raw_data: bool = True
 

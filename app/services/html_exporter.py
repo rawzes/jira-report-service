@@ -4,6 +4,7 @@ from datetime import datetime
 from io import BytesIO
 from collections import defaultdict
 import base64
+from urllib.parse import quote
 
 from app.models.schemas import (
     ReportData, EmployeeMetrics, ProjectMetrics, 
@@ -50,6 +51,8 @@ class HtmlExporter:
             # HTML header
             logger.debug("Adding HTML header")
             interval_str = f"{report.start_date.strftime('%Y-%m-%d')} - {report.end_date.strftime('%Y-%m-%d')}"
+            
+            
             html_parts.append(f"""<!DOCTYPE html>
 <html lang="{self.lang}">
 <head>
@@ -68,7 +71,7 @@ class HtmlExporter:
 <body>
     <div class="container">
         <h1>📊 Отчет за месяц</h1>
-        <p class="subtitle">""" + interval_str + """</p>
+        <p class="subtitle">""" + interval_str + """</p>"""
         <button id="downloadBtn" class="download-btn" onclick="downloadReport()">📥 Скачать отчет</button>
 """)
             
@@ -231,6 +234,22 @@ class HtmlExporter:
             color: #7f8c8d;
             margin-bottom: 30px;
             font-size: 16px;
+        }
+        .share-link {
+            background: #e8f4f8;
+            border: 1px solid #3498db;
+            border-radius: 6px;
+            padding: 10px 15px;
+            margin-bottom: 20px;
+            font-size: 14px;
+            word-break: break-all;
+        }
+        .share-link a {
+            color: #3498db;
+            text-decoration: none;
+        }
+        .share-link a:hover {
+            text-decoration: underline;
         }
         h2 {
             color: #34495e;
@@ -557,7 +576,8 @@ class HtmlExporter:
     
     def _generate_jira_link(self, jql: str, text: str) -> str:
         """Generate a JIRA filter link."""
-        return f'<a href="{self.jira_base}/issues/?jql={jql}" target="_blank">{text}</a>'
+        encoded_jql = quote(jql, safe='')
+        return f'<a href="{self.jira_base}/issues/?jql={encoded_jql}" target="_blank">{text}</a>'
     
     def _generate_summary_section(self, report: ReportData, created_jql: str, closed_jql: str, 
                                    overdue_jql: str, reopened_jql: str, blocked_jql: str) -> str:
@@ -1051,6 +1071,16 @@ class HtmlExporter:
             document.body.removeChild(a);
             URL.revokeObjectURL(url);
         }
+        
+        // Auto-download when page loads (for new tab reports)
+        window.addEventListener('load', function() {
+            // Check if this is a new tab report (not the main app)
+            if (window.opener || window.location.search.includes('autodownload')) {
+                setTimeout(function() {
+                    downloadReport();
+                }, 1000); // Delay to ensure charts are rendered
+            }
+        });
 
     </script>
         """
@@ -1333,7 +1363,7 @@ class HtmlExporter:
         return self._.get(key, default) if hasattr(self, '_') else default
 
 
-# Localization strings (same as xlsx_exporter)
+# Localization strings
 LOCALIZATION = {
     "en": {
         "summary": "Summary",

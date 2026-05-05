@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 
 app = FastAPI(
     title="Jira Report Service",
-    description="Service for generating monthly Jira reports in XLSX format",
+    description="Service for generating Jira reports in HTML format",
     version="1.0.0"
 )
 
@@ -41,7 +41,12 @@ app.include_router(report.router)
 @app.get("/", response_class=HTMLResponse)
 async def root(request: Request):
     """Serve the main page with report generation form."""
-    return templates.TemplateResponse("index.html", {"request": request})
+    return templates.TemplateResponse("index.html", {
+        "request": request,
+        "REPORT_LANG": settings.REPORT_LANG,
+        "JIRA_PROJECT_KEYS": settings.JIRA_PROJECT_KEYS,
+        "JIRA_USER_GROUP": settings.JIRA_USER_GROUP
+    })
 
 
 @app.on_event("startup")

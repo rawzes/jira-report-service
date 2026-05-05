@@ -382,7 +382,7 @@
 <body>
     <div class="container">
         <h1>🎯 Генератор отчетов Jira</h1>
-        <p class="subtitle">Создание отчетов за произвольный период в формате HTML или XLSX</p>
+        <p class="subtitle">Создание отчетов за произвольный период в формате HTML</p>
         
         <div class="info-section collapsed">
             <h3>Об отчете</h3>
@@ -411,7 +411,20 @@
         <form id="reportForm">
             <div class="form-group">
                 <label for="projectKeys">Ключи проектов (через запятую)</label>
-                <input type="text" id="projectKeys" value="MAX,MB,IB" placeholder="Например: PROJ1, PROJ2, PROJ3" />
+                <input type="text" id="projectKeys" value="{{ JIRA_PROJECT_KEYS }}" placeholder="Например: PROJ1, PROJ2, PROJ3" />
+            </div>
+            
+            <div class="form-group">
+                <label for="lang">Язык отчета</label>
+                <select id="lang">
+                    <option value="ru" {% if REPORT_LANG == "ru" %}selected{% endif %}>Русский (RU)</option>
+                    <option value="en" {% if REPORT_LANG == "en" %}selected{% endif %}>English (EN)</option>
+                </select>
+            </div>
+            
+            <div class="form-group">
+                <label for="group">Группа пользователей</label>
+                <input type="text" id="group" value="{{ JIRA_USER_GROUP }}" placeholder="Например: IT" />
             </div>
             
             <div class="form-group">
@@ -425,20 +438,6 @@
                         <label for="endDate" style="font-size: 12px;">Дата окончания</label>
                         <input type="date" id="endDate" required />
                     </div>
-                </div>
-            </div>
-            
-            <div class="form-group">
-                <label>Формат отчета</label>
-                <div class="checkbox-group">
-                    <label>
-                        <input type="radio" name="format" value="html" checked />
-                        HTML (по умолчанию)
-                    </label>
-                    <label>
-                        <input type="radio" name="format" value="xlsx" />
-                        XLSX
-                    </label>
                 </div>
             </div>
             
@@ -599,9 +598,10 @@
             const startDate = document.getElementById('startDate').value;
             const endDate = document.getElementById('endDate').value;
             const projectKeys = document.getElementById('projectKeys').value;
+            const group = document.getElementById('group').value;
+            const lang = document.getElementById('lang').value;
             const groupByProjects = true;
             const includeRawData = true;
-            const format = document.querySelector('input[name="format"]:checked')?.value || 'html';
             
             // Validate dates
             if (new Date(startDate) > new Date(endDate)) {
@@ -629,7 +629,8 @@
                     end_date: endDate,
                     group_by_projects: groupByProjects,
                     include_raw_data: includeRawData,
-                    format: format
+                    lang: lang,
+                    group: group
                 });
                 
                 if (projectKeys) {
@@ -658,46 +659,20 @@
                 // Complete progress
                 completeProgress();
                 
-                // Handle response based on format
-                const contentType = response.headers.get('Content-Type') || '';
+                // For HTML format, open in new tab
+                const html = await response.text();
+                const newTab = window.open();
                 
-                if (format === 'html' || contentType.includes('text/html')) {
-                    // For HTML format, open in new tab
-                    const html = await response.text();
-                    const newTab = window.open();
-                    
-                    // Check if popup was blocked
-                    if (!newTab) {
-                        showError('Браузер заблокировал всплывающее окно. Разрешите всплывающие окна для этого сайта и попробуйте снова.');
-                        clearProgressTimeouts();
-                        return;
-                    }
-                    
-                    newTab.document.write(html);
-                    newTab.document.close();
-                    showSuccess('Отчет успешно сформирован в формате HTML!');
-                } else {
-                    // For XLSX format, download file
-                    const blob = await response.blob();
-                    const url = window.URL.createObjectURL(blob);
-                    const a = document.createElement('a');
-                    a.href = url;
-                    
-                    // Get filename from response headers or generate one
-                    const contentDisposition = response.headers.get('Content-Disposition');
-                    let filename = `jira_report_${startDate}_${endDate}.xlsx`;
-                    if (contentDisposition) {
-                        const match = contentDisposition.match(/filename=(.+)/);
-                        if (match) filename = match[1].replace(/"/g, '');
-                    }
-                    
-                    a.download = filename;
-                    document.body.appendChild(a);
-                    a.click();
-                    window.URL.revokeObjectURL(url);
-                    document.body.removeChild(a);
-                    showSuccess('Отчет успешно сформирован в формате XLSX!');
+                // Check if popup was blocked
+                if (!newTab) {
+                    showError('Браузер заблокировал всплывающее окно. Разрешите всплывающие окна для этого сайта и попробуйте снова.');
+                    clearProgressTimeouts();
+                    return;
                 }
+                
+                newTab.document.write(html);
+                newTab.document.close();
+                showSuccess('Отчет успешно сформирован в формате HTML!');
             } catch (error) {
                 // Display the error message (already parsed from response in the try block)
                 const errorMessage = error.message || 'Ошибка при формировании отчета';

@@ -239,6 +239,10 @@ class ReportBuilder:
         project_keys = request.project_keys or settings.project_keys_list
         start_date, end_date = self._get_month_range(request.year, request.month)
         
+        # Use group from request if provided
+        if hasattr(request, 'group') and request.group:
+            self.user_group = request.group
+        
         report = ReportData(
             year=request.year,
             month=request.month,
@@ -821,9 +825,14 @@ class ReportBuilder:
         
         project_keys = request.project_keys or settings.project_keys_list
         
+        # Use group from request if provided
+        if hasattr(request, 'group') and request.group:
+            self.user_group = request.group
+        
         # Convert date to datetime with timezone
+        # Use exclusive end_date (first moment of next day) for consistency with monthly reports
         start_date = datetime.combine(request.start_date, datetime.min.time()).replace(tzinfo=self.timezone)
-        end_date = datetime.combine(request.end_date, datetime.max.time()).replace(tzinfo=self.timezone)
+        end_date = datetime.combine(request.end_date + timedelta(days=1), datetime.min.time()).replace(tzinfo=self.timezone)
         
         # Use year and month from start_date for ReportData
         report = ReportData(
