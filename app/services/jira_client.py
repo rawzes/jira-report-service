@@ -7,7 +7,7 @@ from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_excep
 from tenacity import before_log, after_log
 import time
 
-from app.models.config import settings
+from app.models.config import get_settings
 
 logger = logging.getLogger(__name__)
 
@@ -26,6 +26,7 @@ class JiraClient:
     """Client for Jira Cloud REST API with retry logic and rate limiting."""
     
     def __init__(self):
+        settings = get_settings()
         self.base_url = settings.JIRA_BASE_URL.rstrip("/")
         self.email = settings.JIRA_EMAIL
         self.api_token = settings.JIRA_API_TOKEN

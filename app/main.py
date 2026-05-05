@@ -6,7 +6,7 @@ from fastapi.templating import Jinja2Templates
 import sys
 
 from app.api import report
-from app.models.config import settings
+from app.models.config import get_settings
 
 # Configure templates
 templates = Jinja2Templates(directory="app/templates")
@@ -42,6 +42,7 @@ app.include_router(report.router)
 @app.get("/", response_class=HTMLResponse)
 async def root(request: Request):
     """Serve the main page with report generation form."""
+    settings = get_settings()
     return templates.TemplateResponse("index.html", {
         "request": request,
         "REPORT_LANG": settings.REPORT_LANG,

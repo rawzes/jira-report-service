@@ -1,6 +1,6 @@
 from pydantic_settings import BaseSettings
 from typing import List
-import os
+from functools import lru_cache
 
 
 class Settings(BaseSettings):
@@ -44,4 +44,7 @@ class Settings(BaseSettings):
         env_file_encoding = "utf-8"
 
 
-settings = Settings()
+@lru_cache(maxsize=1)
+def get_settings() -> Settings:
+    """Get cached settings instance. Settings are loaded lazily on first access."""
+    return Settings()

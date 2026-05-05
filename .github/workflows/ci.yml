@@ -57,4 +57,8 @@ jobs:
 
     - name: Test Docker image
       run: |
-        docker run --rm jira-report:latest python -c "from app.main import app; print('Import successful')"
+        docker run --rm \
+          -e JIRA_BASE_URL=https://test.atlassian.net \
+          -e JIRA_EMAIL=test@example.com \
+          -e JIRA_API_TOKEN=test-token \
+          jira-report:latest python -c "from app.main import app; print('Import successful')"

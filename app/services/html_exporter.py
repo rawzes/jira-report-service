@@ -12,7 +12,7 @@ from app.models.schemas import (
     WeeklyThroughput, WeeklyCycleTime, CycleTimeData, AgingWipData,
     OverdueData, ReopenedData, StatusDistribution
 )
-from app.models.config import settings
+from app.models.config import get_settings
 
 logger = logging.getLogger(__name__)
 
@@ -21,11 +21,12 @@ class HtmlExporter:
     """Generates HTML reports with embedded charts."""
     
     def __init__(self, lang: str = None):
-        self.lang = lang or settings.REPORT_LANG
+        self.settings = get_settings()
+        self.lang = lang or self.settings.REPORT_LANG
         if self.lang not in LOCALIZATION:
             self.lang = "en"
         self._ = LOCALIZATION[self.lang]
-        self.jira_base = settings.JIRA_BASE_URL.rstrip('/')
+        self.jira_base = self.settings.JIRA_BASE_URL.rstrip('/')
         
     def generate(self, report: ReportData) -> str:
         """Generate HTML report with all data and embedded charts."""
@@ -40,10 +41,10 @@ class HtmlExporter:
             # Build JQL filter URLs
             logger.debug("Building JQL filter URLs")
             created_jql = f"project in ({project_keys}) AND created >= '{start_str}' AND created < '{end_str}'"
-            closed_jql = f"project in ({project_keys}) AND status in ({",".join([f'"{s}"' for s in settings.done_statuses_list])}) AND status changed to Done during ('{start_str}', '{end_str}')"
-            overdue_jql = f"project in ({project_keys}) AND duedate < now() AND status not in ({",".join([f'"{s}"' for s in settings.done_statuses_list])})"
+            closed_jql = f"project in ({project_keys}) AND status in ({",".join([f'"{s}"' for s in self.settings.done_statuses_list])}) AND status changed to Done during ('{start_str}', '{end_str}')"
+            overdue_jql = f"project in ({project_keys}) AND duedate < now() AND status not in ({",".join([f'"{s}"' for s in self.settings.done_statuses_list])})"
             reopened_jql = f"project in ({project_keys}) AND status changed from Done to * during ('{start_str}', '{end_str}')"
-            blocked_jql = f"project in ({project_keys}) AND status in ({",".join([f'"{s}"' for s in settings.blocked_statuses_list])})"
+            blocked_jql = f"project in ({project_keys}) AND status in ({",".join([f'"{s}"' for s in self.settings.blocked_statuses_list])})"
             
             logger.debug("Building HTML structure with logging")
             html_parts = []

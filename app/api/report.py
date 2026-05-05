@@ -8,7 +8,7 @@ import json
 from urllib.parse import urlencode
 
 from app.models.schemas import MonthlyReportRequest, CustomReportRequest, ReportData
-from app.models.config import settings
+from app.models.config import get_settings
 from app.services.jira_client import JiraClient
 from app.services.report_builder import ReportBuilder
 from app.services.html_exporter import HtmlExporter
@@ -148,6 +148,7 @@ async def generate_custom_report_post(
 
 def _build_shareable_url(request, report, is_monthly: bool = True) -> str:
     """Build a shareable URL for the report."""
+    settings = get_settings()
     base_url = settings.JIRA_BASE_URL or "http://localhost:8000"
     
     if is_monthly:

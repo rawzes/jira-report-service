@@ -11,7 +11,7 @@ from app.models.schemas import (
     IssueTransition, WeeklyThroughput, CycleTimeData, AgingWipData,
     OverdueData, ReopenedData, StatusDistribution, WeeklyCycleTime
 )
-from app.models.config import settings
+from app.models.config import get_settings
 
 logger = logging.getLogger(__name__)
 
@@ -43,11 +43,12 @@ class ReportBuilder:
     
     def __init__(self, jira_client):
         self.jira = jira_client
-        self.timezone = ZoneInfo(settings.TIMEZONE)
-        self.done_statuses = settings.done_statuses_list
-        self.start_statuses = settings.start_statuses_list
-        self.blocked_statuses = settings.blocked_statuses_list
-        self.excluded_statuses = settings.excluded_statuses_list
+        self.settings = get_settings()
+        self.timezone = ZoneInfo(self.settings.TIMEZONE)
+        self.done_statuses = self.settings.done_statuses_list
+        self.start_statuses = self.settings.start_statuses_list
+        self.blocked_statuses = self.settings.blocked_statuses_list
+        self.excluded_statuses = self.settings.excluded_statuses_list
     
     def _parse_datetime(self, date_str: Optional[str]) -> Optional[datetime]:
         """Parse Jira datetime string to datetime with timezone."""
@@ -232,7 +233,7 @@ class ReportBuilder:
         """Get the effective user group from request or ENV settings."""
         if hasattr(request, 'group') and request.group:
             return request.group
-        return settings.JIRA_USER_GROUP
+        return self.settings.JIRA_USER_GROUP
     
     async def build_report(self, request) -> ReportData:
         """Build complete monthly report with flow metrics."""
@@ -241,7 +242,7 @@ class ReportBuilder:
         if isinstance(request, dict):
             request = MonthlyReportRequest(**request)
         
-        project_keys = request.project_keys or settings.project_keys_list
+        project_keys = request.project_keys or self.settings.project_keys_list
         start_date, end_date = self._get_month_range(request.year, request.month)
         
         # Get effective user group (from request or ENV)
@@ -827,7 +828,7 @@ class ReportBuilder:
         if isinstance(request, dict):
             request = CustomReportRequest(**request)
         
-        project_keys = request.project_keys or settings.project_keys_list
+        project_keys = request.project_keys or self.settings.project_keys_list
         
         # Get effective user group (from request or ENV)
         user_group = self._get_effective_user_group(request)
